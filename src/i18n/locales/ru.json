@@ -1450,6 +1450,7 @@
       "gpuWarningTooltip": "Шумоподавление NIND пока не поддерживает аппаратное ускорение GPU из-за ограничений библиотек.",
       "initializing": "Инициализация...",
       "methodAi": "RawNIND (ИИ — лучшее для RAW)",
+      "methodAiBayer": "RawNIND Bayer (ИИ — данные сенсора)",
       "methodBm3d": "BM3D (Классический — для всех форматов)",
       "methodLabel": "Метод",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

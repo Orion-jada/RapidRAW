@@ -85,6 +85,17 @@ const RAWNIND_TILE: usize = 512;
 const RAWNIND_OVERLAP: usize = 128;
 const RAWNIND_BORDER: usize = 16;
 
+// RawNIND UtNet2, Bayer variant (same darktable-ai package). Denoises the sensor data itself,
+// before demosaicing: input is a 512x512 tile of RGGB blocks packed into 4 channels, output is
+// the full-resolution 1024x1024 tile in camera RGB, again at an arbitrary learned scale.
+const RAWNIND_BAYER_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/rawnind-v1/rawnind_utnet2_bayer_512.onnx";
+const RAWNIND_BAYER_FILENAME: &str = "rawnind_utnet2_bayer_512.onnx";
+const RAWNIND_BAYER_SHA256: &str =
+    "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901";
+const RAWNIND_BAYER_TILE: usize = 512;
+const RAWNIND_BAYER_OVERLAP: usize = 64;
+const RAWNIND_BAYER_BORDER: usize = 8;
+
 const REC709_TO_REC2020: [[f32; 3]; 3] = [
     [0.627_404, 0.329_282, 0.043_313_6],
     [0.069_097, 0.919_540, 0.011_361_2],
@@ -161,6 +172,7 @@ pub struct AiState {
     pub models: Option<Arc<AiModels>>,
     pub denoise_model: Option<Arc<Mutex<Session>>>,
     pub raw_denoise_model: Option<Arc<Mutex<Session>>>,
+    pub raw_bayer_denoise_model: Option<Arc<Mutex<Session>>>,
     pub upscale_model: Option<Arc<Mutex<Session>>>,
     pub foreground_model: Option<Arc<Mutex<Session>>>,
     pub sky_model: Option<Arc<Mutex<Session>>>,
@@ -736,6 +748,7 @@ pub async fn get_or_init_ai_models(
             models: Some(models.clone()),
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: None,
@@ -806,6 +819,7 @@ pub async fn get_or_init_denoise_model(
             models: None,
             denoise_model: Some(denoise_model.clone()),
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: None,
@@ -876,6 +890,7 @@ pub async fn get_or_init_raw_denoise_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: Some(raw_denoise_model.clone()),
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: None,
@@ -889,6 +904,79 @@ pub async fn get_or_init_raw_denoise_model(
     }
 
     Ok(raw_denoise_model)
+}
+
+pub async fn get_or_init_raw_bayer_denoise_model(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<Mutex<Session>>> {
+    if let Some(model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.raw_bayer_denoise_model.clone())
+    {
+        return Ok(model);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.raw_bayer_denoise_model.clone())
+    {
+        return Ok(model);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        RAWNIND_BAYER_FILENAME,
+        RAWNIND_BAYER_URL,
+        RAWNIND_BAYER_SHA256,
+        "RawNIND Bayer Denoise Model",
+    )
+    .await?;
+
+    let _ = ort::init().with_name("AI-Denoise").commit();
+    let model_path = models_dir.join(RAWNIND_BAYER_FILENAME);
+    // darktable keeps this model on CPU because its FP16 GPU path overflows. CoreML's ML Program
+    // computes in FP32 here, matching the CPU output, and is about 14x faster.
+    let session = build_session(
+        &model_path,
+        RAWNIND_BAYER_SHA256,
+        Some(CoreMLComputeUnits::CPUAndGPU),
+    )?;
+    let model = Arc::new(Mutex::new(session));
+
+    crate::register_exit_handler();
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.raw_bayer_denoise_model = Some(model.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            raw_denoise_model: None,
+            raw_bayer_denoise_model: Some(model.clone()),
+            upscale_model: None,
+            foreground_model: None,
+            sky_model: None,
+            clip_models: None,
+            search_models: None,
+            lama_model: None,
+            normal_model: None,
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(model)
 }
 
 pub async fn get_or_init_upscale_model(
@@ -946,6 +1034,7 @@ pub async fn get_or_init_upscale_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: Some(upscale_model.clone()),
             foreground_model: None,
             sky_model: None,
@@ -1016,6 +1105,7 @@ pub async fn get_or_init_foreground_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: Some(foreground_model.clone()),
             sky_model: None,
@@ -1082,6 +1172,7 @@ pub async fn get_or_init_sky_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: Some(sky_model.clone()),
@@ -1160,6 +1251,7 @@ pub async fn get_or_init_clip_models(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: None,
@@ -1252,6 +1344,7 @@ pub async fn get_or_init_search_models(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: None,
@@ -1318,6 +1411,7 @@ pub async fn get_or_init_lama_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: None,
@@ -1384,6 +1478,7 @@ pub async fn get_or_init_normal_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
             sky_model: None,
@@ -1805,6 +1900,229 @@ pub fn run_rawnind_denoise(
         });
     progress(1.0);
     Ok(out_img)
+}
+
+/// Offset (row, col) within the repeating 2x2 CFA where a block reads R G / G B. `None` for
+/// anything but a 2x2 Bayer pattern with red and blue on the diagonal.
+fn rggb_offset(cfa: &rawler::CFA) -> Option<(usize, usize)> {
+    use rawler::cfa::CFAColor;
+    if cfa.width != 2 || cfa.height != 2 {
+        return None;
+    }
+    let is = |row: usize, col: usize, color: CFAColor| cfa.color_at(row, col) == color as usize;
+    [(0, 0), (0, 1), (1, 0), (1, 1)]
+        .into_iter()
+        .find(|&(oy, ox)| {
+            is(oy, ox, CFAColor::RED)
+                && is(oy, ox + 1, CFAColor::GREEN)
+                && is(oy + 1, ox, CFAColor::GREEN)
+                && is(oy + 1, ox + 1, CFAColor::BLUE)
+        })
+}
+
+/// RawNIND denoise of Bayer sensor data, in place and in raw units, before demosaicing. Each
+/// photosite is normalised to [0, 1] with its own black and white level, as the model was
+/// trained. The model returns full-resolution camera RGB; each photosite takes its own colour
+/// from it (re-mosaicing, as darktable does), so demosaicing and everything after it stay the
+/// same. Photosites at or near clipping are left alone. `strength` blends from the original (0)
+/// to fully denoised (1). Fails on non-Bayer sensors, leaving the data untouched.
+pub fn run_rawnind_bayer_denoise(
+    raw: &mut rawler::RawImage,
+    strength: f32,
+    session: &Mutex<Session>,
+    progress: impl Fn(f32),
+) -> Result<()> {
+    const T: usize = RAWNIND_BAYER_TILE;
+    const T2: usize = 2 * T;
+
+    let rawler::rawimage::RawPhotometricInterpretation::Cfa(config) = &raw.photometric else {
+        anyhow::bail!("not a colour filter array raw");
+    };
+    let (oy, ox) = rggb_offset(&config.cfa)
+        .ok_or_else(|| anyhow::anyhow!("CFA pattern '{}' is not Bayer", config.cfa.name))?;
+    let width = raw.width;
+    let (ax, ay, aw, ah) = match raw.active_area {
+        Some(r) => (r.p.x, r.p.y, r.d.w, r.d.h),
+        None => (0, 0, raw.width, raw.height),
+    };
+    // First row and column of a whole R G / G B block inside the active area.
+    let r0 = ay + (oy + 2 - ay % 2) % 2;
+    let c0 = ax + (ox + 2 - ax % 2) % 2;
+    let ph = (ay + ah).saturating_sub(r0) / 2;
+    let pw = (ax + aw).saturating_sub(c0) / 2;
+    if raw.cpp != 1 || ph < 2 || pw < 2 || ax + aw > raw.width || ay + ah > raw.height {
+        anyhow::bail!("unsupported sensor layout");
+    }
+    let rawler::RawImageData::Integer(data) = &mut raw.data else {
+        anyhow::bail!("floating-point sensor data");
+    };
+    if data.len() != raw.width * raw.height {
+        anyhow::bail!("sensor data size doesn't match its dimensions");
+    }
+
+    // Black level and range for each block site: R, G1, G2, B.
+    let blacks = raw.blacklevel.as_bayer_array();
+    let whites = raw.whitelevel.as_bayer_array();
+    let mut black = [0.0f32; 4];
+    let mut range = [0.0f32; 4];
+    for k in 0..4 {
+        let site = ((oy + k / 2) % 2) * 2 + (ox + k % 2) % 2;
+        black[k] = blacks[site];
+        range[k] = (whites[site] - blacks[site]).max(1.0);
+    }
+
+    // Normalised photosites, one RGGB block per packed pixel: [ph][pw][4].
+    let mut packed = vec![0.0f32; ph * pw * 4];
+    packed
+        .par_chunks_mut(pw * 4)
+        .enumerate()
+        .for_each(|(py, row)| {
+            let top = (r0 + 2 * py) * width + c0;
+            let bottom = top + width;
+            for px in 0..pw {
+                let raw_values = [
+                    data[top + 2 * px],
+                    data[top + 2 * px + 1],
+                    data[bottom + 2 * px],
+                    data[bottom + 2 * px + 1],
+                ];
+                for k in 0..4 {
+                    row[px * 4 + k] = (raw_values[k] as f32 - black[k]) / range[k];
+                }
+            }
+        });
+
+    let xs = tile_starts(pw, T, RAWNIND_BAYER_OVERLAP);
+    let ys = tile_starts(ph, T, RAWNIND_BAYER_OVERLAP);
+    let weights: Vec<f32> = (0..T)
+        .map(|u| tile_weight(u, T, RAWNIND_BAYER_OVERLAP, RAWNIND_BAYER_BORDER))
+        .collect();
+
+    // Per-photosite sum of weighted denoised values, and per-block sum of the weights.
+    let mut acc = vec![0.0f32; ph * pw * 4];
+    let mut weight_sum = vec![0.0f32; ph * pw];
+    let mut tile_in = vec![0.0f32; 4 * T * T];
+    let total = xs.len() * ys.len();
+    let mut failed = 0;
+
+    for (iy, &y0) in ys.iter().enumerate() {
+        for (ix, &x0) in xs.iter().enumerate() {
+            progress((iy * xs.len() + ix) as f32 / total as f32);
+
+            for (k, plane) in tile_in.chunks_mut(T * T).enumerate() {
+                plane.par_chunks_mut(T).enumerate().for_each(|(dy, row)| {
+                    let sy = reflect_coord(y0 + dy as isize, ph);
+                    let src = &packed[sy * pw * 4..(sy + 1) * pw * 4];
+                    for (dx, v) in row.iter_mut().enumerate() {
+                        let sx = reflect_coord(x0 + dx as isize, pw);
+                        *v = src[sx * 4 + k].clamp(0.0, 1.0);
+                    }
+                });
+            }
+            let in_mean = tile_in.iter().map(|&v| v as f64).sum::<f64>() / tile_in.len() as f64;
+
+            let input = Array4::from_shape_vec((1, 4, T, T), tile_in.clone())?;
+            let mut sess = session.lock().unwrap();
+            let outputs = sess.run(ort::inputs![Tensor::from_array(input)?])?;
+            let out = outputs[0].try_extract_array::<f32>()?;
+            let out = out
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("RawNIND output is not contiguous"))?;
+            if out.len() != 3 * T2 * T2 {
+                anyhow::bail!("unexpected RawNIND Bayer output size {}", out.len());
+            }
+            // Each photosite's own colour from the model's camera RGB: R, G1, G2, B.
+            let mosaic = |dy: usize, dx: usize| {
+                let at = |c: usize, y: usize, x: usize| out[c * T2 * T2 + y * T2 + x];
+                [
+                    at(0, 2 * dy, 2 * dx),
+                    at(1, 2 * dy, 2 * dx + 1),
+                    at(1, 2 * dy + 1, 2 * dx),
+                    at(2, 2 * dy + 1, 2 * dx + 1),
+                ]
+            };
+            let out_mean = (0..T * T)
+                .into_par_iter()
+                .map(|t| mosaic(t / T, t % T).iter().map(|&v| v as f64).sum::<f64>())
+                .sum::<f64>()
+                / (4 * T * T) as f64;
+            // Matched like for like, as in `run_rawnind_denoise`. A black tile stays black.
+            let gain = if in_mean <= 1e-6 {
+                0.0
+            } else if out_mean.is_finite() && out_mean.abs() > 1e-12 {
+                (in_mean / out_mean) as f32
+            } else {
+                failed += 1;
+                continue;
+            };
+
+            let y_lo = y0.max(0) as usize;
+            let y_hi = ((y0 + T as isize) as usize).min(ph);
+            let x_lo = x0.max(0) as usize;
+            let x_hi = ((x0 + T as isize) as usize).min(pw);
+            acc.par_chunks_mut(pw * 4)
+                .zip(weight_sum.par_chunks_mut(pw))
+                .enumerate()
+                .skip(y_lo)
+                .take(y_hi - y_lo)
+                .for_each(|(y, (acc_row, w_row))| {
+                    let dy = (y as isize - y0) as usize;
+                    for x in x_lo..x_hi {
+                        let dx = (x as isize - x0) as usize;
+                        let wgt = weights[dy] * weights[dx];
+                        if wgt == 0.0 {
+                            continue;
+                        }
+                        w_row[x] += wgt;
+                        let m = mosaic(dy, dx);
+                        for k in 0..4 {
+                            acc_row[x * 4 + k] += wgt * gain * m[k];
+                        }
+                    }
+                });
+        }
+    }
+    if failed == total {
+        anyhow::bail!("RawNIND Bayer produced no usable output");
+    }
+    if failed > 0 {
+        log::warn!("RawNIND Bayer: skipped {failed} of {total} tiles with invalid output");
+    }
+
+    let strength = strength.clamp(0.0, 1.0);
+    data[r0 * width..(r0 + 2 * ph) * width]
+        .par_chunks_mut(2 * width)
+        .enumerate()
+        .for_each(|(py, rows)| {
+            let (top, bottom) = rows.split_at_mut(width);
+            for px in 0..pw {
+                let p = py * pw + px;
+                let wsum = weight_sum[p];
+                if wsum <= 0.0 {
+                    continue;
+                }
+                let c = c0 + 2 * px;
+                let mut values = [top[c], top[c + 1], bottom[c], bottom[c + 1]];
+                for (k, value) in values.iter_mut().enumerate() {
+                    let original = packed[p * 4 + k];
+                    // Clipped photosites hold no noise worth removing, only lost detail.
+                    if original >= 0.99 {
+                        continue;
+                    }
+                    let denoised = acc[p * 4 + k] / wsum;
+                    let v = original + strength * (denoised - original);
+                    *value = (black[k] + v * range[k])
+                        .round()
+                        .clamp(0.0, u16::MAX as f32) as u16;
+                }
+                top[c] = values[0];
+                top[c + 1] = values[1];
+                bottom[c] = values[2];
+                bottom[c + 1] = values[3];
+            }
+        });
+    progress(1.0);
+    Ok(())
 }
 
 /// Catmull-Rom 2x upsampling of one planar channel (half-pixel centres, edges clamped). Output

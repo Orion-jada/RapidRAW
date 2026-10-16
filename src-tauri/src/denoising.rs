@@ -1,4 +1,4 @@
-use crate::app_settings::load_settings;
+use crate::app_settings::{AppSettings, load_settings};
 use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
@@ -10,10 +10,11 @@ use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::fs;
 use std::io::Cursor;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 struct ProgressReporter<'a> {
     counter: &'a Arc<AtomicUsize>,
@@ -60,7 +61,17 @@ pub async fn apply_denoising(
     let path_str = source_path.to_string_lossy().to_string();
 
     let mut ai_session = None;
-    if method == "ai" {
+    let mut bayer_session = None;
+    if method == "ai_bayer" && is_raw_file(&path_str) {
+        let session = crate::ai_processing::get_or_init_raw_bayer_denoise_model(
+            &app_handle,
+            &state.ai_state,
+            &state.ai_init_lock,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        bayer_session = Some(session);
+    } else if method == "ai" || method == "ai_bayer" {
         let session = if is_raw_file(&path_str) {
             crate::ai_processing::get_or_init_raw_denoise_model(
                 &app_handle,
@@ -83,7 +94,14 @@ pub async fn apply_denoising(
     let denoise_result_handle = state.denoise_result.clone();
 
     tokio::task::spawn_blocking(move || {
-        match denoise_image(path_str, intensity, method, app_handle.clone(), ai_session) {
+        match denoise_image(
+            path_str,
+            intensity,
+            method,
+            app_handle.clone(),
+            ai_session,
+            bayer_session,
+        ) {
             Ok((image, _)) => {
                 *denoise_result_handle.lock().unwrap() = Some(image);
             }
@@ -106,9 +124,20 @@ pub async fn batch_denoise_images(
 ) -> Result<Vec<String>, String> {
     let is_raw_path = |p: &String| is_raw_file(parse_virtual_path(p).0);
     let mut raw_session = None;
+    let mut bayer_session = None;
     let mut rgb_session = None;
-    if method == "ai" {
-        if paths.iter().any(is_raw_path) {
+    if method == "ai_bayer" && paths.iter().any(is_raw_path) {
+        let session = crate::ai_processing::get_or_init_raw_bayer_denoise_model(
+            &app_handle,
+            &state.ai_state,
+            &state.ai_init_lock,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        bayer_session = Some(session);
+    }
+    if method == "ai" || method == "ai_bayer" {
+        if method == "ai" && paths.iter().any(is_raw_path) {
             let session = crate::ai_processing::get_or_init_raw_denoise_model(
                 &app_handle,
                 &state.ai_state,
@@ -158,6 +187,7 @@ pub async fn batch_denoise_images(
                 } else {
                     rgb_session.clone()
                 },
+                bayer_session.clone(),
             ) {
                 Ok((image, _)) => {
                     let parent_dir = source_path.parent().unwrap_or(std::path::Path::new(""));
@@ -321,12 +351,43 @@ fn run_bm3d(
     Ok(DynamicImage::ImageRgb32F(out_img_buffer))
 }
 
+/// Develops a RAW file with RawNIND Bayer run on its sensor data before demosaicing. Fails for
+/// sensors that aren't Bayer (X-Trans, Foveon, linear DNG), leaving the caller to fall back.
+fn develop_with_bayer_denoise(
+    file_bytes: &[u8],
+    settings: &AppSettings,
+    intensity: f32,
+    session: &Mutex<ort::session::Session>,
+    app_handle: &AppHandle,
+) -> Result<DynamicImage, String> {
+    let mut denoise = |raw: &mut rawler::RawImage| {
+        crate::ai_processing::run_rawnind_bayer_denoise(raw, intensity, session, |done| {
+            let _ = app_handle.emit(
+                "denoise-progress",
+                format!("Denoising… {:.0}%", done * 100.0),
+            );
+        })
+    };
+    let developed = panic::catch_unwind(AssertUnwindSafe(|| {
+        crate::raw_processing::develop_raw_image_with(
+            file_bytes,
+            settings.raw_highlight_compression.unwrap_or(2.5),
+            settings.linear_raw_mode.clone(),
+            &mut denoise,
+        )
+    }))
+    .map_err(|_| "the RAW decoder panicked".to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(DynamicImage::ImageRgb32F(developed.into_rgb32f()))
+}
+
 fn denoise_image(
     path_str: String,
     intensity: f32,
     method: String,
     app_handle: AppHandle,
     ai_session: Option<Arc<Mutex<ort::session::Session>>>,
+    bayer_session: Option<Arc<Mutex<ort::session::Session>>>,
 ) -> Result<(DynamicImage, String), String> {
     let path = Path::new(&path_str);
     if !path.exists() {
@@ -344,7 +405,7 @@ fn denoise_image(
     if method == "raw9" {
         original_settings.use_apple_raw9 = Some(false);
     }
-    let rawnind = method == "ai" && is_raw;
+    let rawnind = (method == "ai" || method == "ai_bayer") && is_raw;
     if rawnind {
         // RawNIND is trained on noise straight out of demosaicing: skip Apple's develop and the
         // raw pre-pass (chroma smoothing, sharpening). Sharpening is reapplied after denoising.
@@ -359,8 +420,51 @@ fn denoise_image(
 
     let rgb_img_for_denoiser = dynamic_img.to_rgb32f();
 
-    let mut out_dynamic = if method == "ai" {
-        let session_arc = ai_session.ok_or_else(|| "AI Session not provided".to_string())?;
+    let bayer_denoised = match bayer_session {
+        Some(session) if method == "ai_bayer" && is_raw => {
+            let _ = app_handle.emit("denoise-progress", "Denoising (AI RawNIND Bayer)...");
+            match develop_with_bayer_denoise(
+                &file_bytes,
+                &original_settings,
+                intensity,
+                &session,
+                &app_handle,
+            ) {
+                Ok(image) => Some(image),
+                Err(e) => {
+                    log::warn!(
+                        "RawNIND Bayer can't denoise '{}', using RawNIND instead: {}",
+                        path_str,
+                        e
+                    );
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+
+    let mut out_dynamic = if let Some(mut out) = bayer_denoised {
+        let (_, sharpening) = raw_preprocessing_amounts(&settings);
+        if sharpening > 0.0 {
+            remove_raw_artifacts_and_enhance(&mut out, 0.0, sharpening);
+        }
+        out
+    } else if method == "ai" || method == "ai_bayer" {
+        let session_arc = match ai_session {
+            Some(session) => session,
+            // RawNIND Bayer only handles Bayer sensors; others fall back to RawNIND.
+            None if rawnind => {
+                let state = app_handle.state::<AppState>();
+                tauri::async_runtime::block_on(crate::ai_processing::get_or_init_raw_denoise_model(
+                    &app_handle,
+                    &state.ai_state,
+                    &state.ai_init_lock,
+                ))
+                .map_err(|e| e.to_string())?
+            }
+            None => return Err("AI Session not provided".to_string()),
+        };
         if rawnind {
             let _ = app_handle.emit("denoise-progress", "Denoising (AI RawNIND)...");
             let denoised = crate::ai_processing::run_rawnind_denoise(

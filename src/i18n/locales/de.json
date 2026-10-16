@@ -1392,6 +1392,7 @@
       "gpuWarningTooltip": "NIND Entrauschen unterstützt noch keine GPU-Beschleunigung aufgrund von Abhängigkeiten.",
       "initializing": "Wird initialisiert...",
       "methodAi": "RawNIND (KI - Am besten für RAW)",
+      "methodAiBayer": "RawNIND Bayer (KI - Sensordaten)",
       "methodBm3d": "BM3D (Traditionell - Alle Formate)",
       "methodLabel": "Methode",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

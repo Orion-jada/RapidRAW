@@ -1421,6 +1421,7 @@
       "gpuWarningTooltip": "La reducción de ruido NIND aún no soporta aceleración por GPU debido a limitaciones de dependencias.",
       "initializing": "Inicializando...",
       "methodAi": "RawNIND (IA - Mejor para RAW)",
+      "methodAiBayer": "RawNIND Bayer (IA - Datos del sensor)",
       "methodBm3d": "BM3D (Tradicional - Todos los formatos)",
       "methodLabel": "Método",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

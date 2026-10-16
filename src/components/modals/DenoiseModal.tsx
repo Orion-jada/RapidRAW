@@ -12,9 +12,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../ui/AppProperties';
 import { useSettingsStore } from '../../store/useSettingsStore';
 
-export type DenoiseMethod = 'ai' | 'bm3d' | 'raw9';
+export type DenoiseMethod = 'ai' | 'ai_bayer' | 'bm3d' | 'raw9';
 
-const defaultIntensityFor = (m: DenoiseMethod) => (m === 'bm3d' ? 15 : m === 'ai' ? 100 : 50);
+const defaultIntensityFor = (m: DenoiseMethod) => (m === 'bm3d' ? 15 : m === 'ai' || m === 'ai_bayer' ? 100 : 50);
 
 interface DenoiseModalProps {
   isOpen: boolean;
@@ -378,10 +378,11 @@ export default function DenoiseModal({
   const methodOptions = useMemo<Array<{ label: string; value: DenoiseMethod; disabled?: boolean }>>(
     () => [
       { label: t('modals.denoise.methodAi'), value: 'ai', disabled: isAiFree },
+      ...(isRaw ? [{ label: t('modals.denoise.methodAiBayer'), value: 'ai_bayer' as const, disabled: isAiFree }] : []),
       { label: t('modals.denoise.methodBm3d'), value: 'bm3d' },
       ...(raw9Available ? [{ label: t('modals.denoise.methodRaw9'), value: 'raw9' as const }] : []),
     ],
-    [t, raw9Available, isAiFree],
+    [t, raw9Available, isAiFree, isRaw],
   );
 
   useEffect(() => {
@@ -413,7 +414,7 @@ export default function DenoiseModal({
   }, [isOpen, targetPathsKey]);
 
   useEffect(() => {
-    if (method === 'raw9' && !raw9Available) {
+    if ((method === 'raw9' && !raw9Available) || (method === 'ai_bayer' && (!isRaw || isAiFree))) {
       const fallback: DenoiseMethod = isRaw && !isAiFree ? 'ai' : 'bm3d';
       setMethod(fallback);
       setIntensity(defaultIntensityFor(fallback));

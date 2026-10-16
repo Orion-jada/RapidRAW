@@ -1390,6 +1390,7 @@
       "gpuWarningTooltip": "由于依赖项限制，NIND 降噪尚不支持 GPU 加速。",
       "initializing": "初始化中...",
       "methodAi": "RawNIND（AI - 最适合 RAW）",
+      "methodAiBayer": "RawNIND Bayer（AI - 传感器原始数据）",
       "methodBm3d": "BM3D（传统 - 所有格式）",
       "methodLabel": "方法",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

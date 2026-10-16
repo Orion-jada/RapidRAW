@@ -1450,6 +1450,7 @@
       "gpuWarningTooltip": "NIND Denoise nie obsługuje jeszcze akceleracji GPU z powodu ograniczeń zależności.",
       "initializing": "Inicjowanie...",
       "methodAi": "RawNIND (AI - Najlepsze dla RAW)",
+      "methodAiBayer": "RawNIND Bayer (AI - Dane z matrycy)",
       "methodBm3d": "BM3D (Tradycyjne - Wszystkie formaty)",
       "methodLabel": "Metoda",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

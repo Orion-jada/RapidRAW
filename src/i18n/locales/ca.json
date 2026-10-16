@@ -1395,6 +1395,7 @@
       "gpuWarningTooltip": "La reducció de soroll NIND encara no admet acceleració per GPU a causa de limitacions de dependències.",
       "initializing": "S'està inicialitzant...",
       "methodAi": "RawNIND (IA - Millor per a RAW)",
+      "methodAiBayer": "RawNIND Bayer (IA - Dades del sensor RAW)",
       "methodBm3d": "BM3D (Tradicional - Tots els formats)",
       "methodLabel": "Mètode",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

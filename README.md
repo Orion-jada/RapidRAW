@@ -63,6 +63,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 
 - **Rebuilt auto-enhance:** Auto-enhance now renders a small preview through the real editing pipeline and tunes exposure, contrast, highlights, shadows, whites and blacks, vibrance and white balance against what the photo actually looks like, in about 0.16 s. Night shots stay dark, and clarity, dehaze and vignette are left alone. Also available in batch and from the command line (`--auto`).
 - **AI denoise for RAW files with RawNIND:** RAW files are denoised by RawNIND on the linear image before tone mapping, which keeps highlight detail (about 2 s for 24 MP). The AI slider is now a simple Strength control. Other files still use NIND.
+- **RawNIND Bayer denoise:** a second RawNIND option in the Denoise menu that cleans the camera's sensor data before it is turned into colour (demosaiced), as darktable does. It removes more colour noise in dark areas and takes about 0.5 s for 24 MP. It works with Bayer sensors (most cameras); for others, such as Fujifilm X-Trans, it uses regular RawNIND.
 - **AI 2× upscale on export:** Doubles width and height with a RealPLKSR super-resolution model, after edits and crop. About a minute per 24 MP photo on the GPU, with a strength slider (default 60%, because full strength smooths fine texture). Also available from the command line (`--ai-upscale`).
 
 ### Library
@@ -116,6 +117,7 @@ Each AI tool downloads its model the first time you use it, then keeps it. The m
 | Foreground mask    | BiRefNet      | 507 MB       |
 | Sky mask           | SkyWater-Seg  | 50 MB        |
 | RAW denoise        | RawNIND       | 31 MB        |
+| RAW denoise, Bayer | RawNIND Bayer | 31 MB        |
 | 2× upscale         | RealPLKSR     | 32 MB        |
 | Search and culling | SigLIP 2      | about 500 MB |
 

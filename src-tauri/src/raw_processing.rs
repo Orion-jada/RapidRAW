@@ -30,6 +30,29 @@ pub fn develop_raw_image(
         highlight_compression,
         linear_mode,
         cancel_token,
+        None,
+    )?;
+    Ok(apply_orientation(developed_image, orientation))
+}
+
+/// Edits decoded sensor data (still in raw units, with the file's black and white levels) before
+/// it is demosaiced.
+pub type SensorDataEdit<'a> = &'a mut dyn FnMut(&mut RawImage) -> Result<()>;
+
+/// Like `develop_raw_image`, with `edit_sensor_data` run on the sensor data before demosaicing.
+pub fn develop_raw_image_with(
+    file_bytes: &[u8],
+    highlight_compression: f32,
+    linear_mode: String,
+    edit_sensor_data: SensorDataEdit,
+) -> Result<DynamicImage> {
+    let (developed_image, orientation) = develop_internal(
+        file_bytes,
+        false,
+        highlight_compression,
+        linear_mode,
+        None,
+        Some(edit_sensor_data),
     )?;
     Ok(apply_orientation(developed_image, orientation))
 }
@@ -138,6 +161,7 @@ fn develop_internal(
     _highlight_compression: f32,
     linear_mode: String,
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    edit_sensor_data: Option<SensorDataEdit>,
 ) -> Result<(DynamicImage, Orientation)> {
     let check_cancel = || -> Result<()> {
         if let Some((tracker, generation)) = &cancel_token
@@ -155,6 +179,10 @@ fn develop_internal(
 
     check_cancel()?;
     let mut raw_image: RawImage = decoder.raw_image(&source, &RawDecodeParams::default(), false)?;
+    if let Some(edit) = edit_sensor_data {
+        edit(&mut raw_image)?;
+        check_cancel()?;
+    }
 
     let orientation = metadata_orientation(decoder.as_ref(), &source)?;
 

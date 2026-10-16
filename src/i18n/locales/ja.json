@@ -1390,6 +1390,7 @@
       "gpuWarningTooltip": "NINDノイズ低減は、依存関係の制限により現在GPUアクセラレーションをサポートしていません。",
       "initializing": "初期化中...",
       "methodAi": "RawNIND (AI - RAWに最適)",
+      "methodAiBayer": "RawNIND Bayer (AI - センサーデータ)",
       "methodBm3d": "BM3D (従来型 - すべての形式に対応)",
       "methodLabel": "方式",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

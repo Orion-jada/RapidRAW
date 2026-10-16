@@ -1421,6 +1421,7 @@
       "gpuWarningTooltip": "Le débruitage NIND ne prend pas encore en charge l'accélération GPU en raison de limitations de dépendances.",
       "initializing": "Initialisation...",
       "methodAi": "RawNIND (IA - Meilleur pour RAW)",
+      "methodAiBayer": "RawNIND Bayer (IA - Données du capteur)",
       "methodBm3d": "BM3D (Traditionnel - Tous formats)",
       "methodLabel": "Méthode",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

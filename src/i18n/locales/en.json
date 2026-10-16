@@ -1392,6 +1392,7 @@
       "gpuWarningTooltip": "NIND Denoise does not yet support GPU acceleration due to dependency limitations.",
       "initializing": "Initializing...",
       "methodAi": "RawNIND (AI - Best for RAW)",
+      "methodAiBayer": "RawNIND Bayer (AI - Raw sensor data)",
       "methodBm3d": "BM3D (Traditional - All formats)",
       "methodLabel": "Method",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",
