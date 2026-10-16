@@ -9,6 +9,7 @@ use image::{
     DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, Rgb, Rgb32FImage, Rgba, RgbaImage,
 };
 use ndarray::{Array, Array4, IxDyn};
+use ort::execution_providers::coreml::CoreMLComputeUnits;
 use ort::session::Session;
 use ort::value::Tensor;
 use rayon::prelude::*;
@@ -321,6 +322,68 @@ fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     Ok(models_dir)
 }
 
+/// Creates an ONNX Runtime session. On macOS, `coreml_units` hands the model to CoreML (GPU or
+/// Neural Engine), falling back to CPU if CoreML can't compile it; `None` keeps it on CPU.
+///
+/// Only enable CoreML for models verified to run correctly and faster with it. Models that are
+/// int8-quantized, split into many CoreML/CPU partitions, or fail inside CoreML at run time
+/// (which the load-time fallback can't catch) must stay on CPU.
+/// Set `RAPIDRAW_AI_CPU_ONLY=1` to force CPU for every model.
+fn build_session(
+    model_path: &Path,
+    model_sha256: &str,
+    coreml_units: Option<CoreMLComputeUnits>,
+) -> Result<Session> {
+    #[cfg(target_os = "macos")]
+    if let Some(units) = coreml_units
+        && std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_none()
+    {
+        match build_coreml_session(model_path, model_sha256, units) {
+            Ok(session) => {
+                log::info!("Loaded {} with CoreML ({:?})", model_path.display(), units);
+                return Ok(session);
+            }
+            Err(e) => log::warn!(
+                "CoreML failed for {}, falling back to CPU: {}",
+                model_path.display(),
+                e
+            ),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (model_sha256, coreml_units);
+
+    Ok(Session::builder()?.commit_from_file(model_path)?)
+}
+
+#[cfg(target_os = "macos")]
+fn build_coreml_session(
+    model_path: &Path,
+    model_sha256: &str,
+    units: CoreMLComputeUnits,
+) -> Result<Session> {
+    use ort::execution_providers::coreml::{CoreMLExecutionProvider, CoreMLModelFormat};
+
+    // Keyed by the model's hash so updated weights never reuse a stale compiled model.
+    let cache_dir = model_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("coreml_cache")
+        .join(&model_sha256[..16]);
+    fs::create_dir_all(&cache_dir)?;
+
+    let coreml = CoreMLExecutionProvider::default()
+        .with_model_format(CoreMLModelFormat::MLProgram)
+        .with_compute_units(units)
+        .with_model_cache_dir(cache_dir.display())
+        .build()
+        .error_on_failure();
+
+    Ok(Session::builder()?
+        .with_execution_providers([coreml])?
+        .commit_from_file(model_path)?)
+}
+
 fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
     if bytes.is_empty() {
         return Err(anyhow::anyhow!(
@@ -532,11 +595,23 @@ pub async fn get_or_init_ai_models(
     let sky_seg_path = models_dir.join(SKYSEG_FILENAME);
     let depth_path = models_dir.join(DEPTH_FILENAME);
 
-    let sam_encoder = Session::builder()?.commit_from_file(encoder_path)?;
-    let sam_decoder = Session::builder()?.commit_from_file(decoder_path)?;
-    let u2netp = Session::builder()?.commit_from_file(u2netp_path)?;
-    let sky_seg = Session::builder()?.commit_from_file(sky_seg_path)?;
-    let depth_anything = Session::builder()?.commit_from_file(depth_path)?;
+    let sam_encoder = build_session(&encoder_path, ENCODER_SHA256, None)?;
+    let sam_decoder = build_session(&decoder_path, DECODER_SHA256, None)?;
+    let u2netp = build_session(
+        &u2netp_path,
+        U2NETP_SHA256,
+        Some(CoreMLComputeUnits::CPUAndNeuralEngine),
+    )?;
+    let sky_seg = build_session(
+        &sky_seg_path,
+        SKYSEG_SHA256,
+        Some(CoreMLComputeUnits::CPUAndNeuralEngine),
+    )?;
+    let depth_anything = build_session(
+        &depth_path,
+        DEPTH_SHA256,
+        Some(CoreMLComputeUnits::CPUAndGPU),
+    )?;
 
     crate::register_exit_handler();
 
@@ -604,7 +679,11 @@ pub async fn get_or_init_denoise_model(
 
     let _ = ort::init().with_name("AI-Denoise").commit();
     let model_path = models_dir.join(DENOISE_FILENAME);
-    let session = Session::builder()?.commit_from_file(model_path)?;
+    let session = build_session(
+        &model_path,
+        DENOISE_SHA256,
+        Some(CoreMLComputeUnits::CPUAndGPU),
+    )?;
     let denoise_model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
@@ -674,7 +753,7 @@ pub async fn get_or_init_clip_models(
 
     let _ = ort::init().with_name("AI-Tagging").commit();
     let clip_model_path = models_dir.join(CLIP_MODEL_FILENAME);
-    let model = Mutex::new(Session::builder()?.commit_from_file(clip_model_path)?);
+    let model = Mutex::new(build_session(&clip_model_path, CLIP_MODEL_SHA256, None)?);
     let tokenizer =
         Tokenizer::from_file(clip_tokenizer_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
@@ -738,7 +817,7 @@ pub async fn get_or_init_lama_model(
 
     let _ = ort::init().with_name("AI-Inpainting").commit();
     let model_path = models_dir.join(LAMA_FILENAME);
-    let session = Session::builder()?.commit_from_file(model_path)?;
+    let session = build_session(&model_path, LAMA_SHA256, None)?;
     let lama_model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
@@ -799,7 +878,7 @@ pub async fn get_or_init_normal_model(
 
     let _ = ort::init().with_name("AI-Normal").commit();
     let model_path = models_dir.join(NORMAL_FILENAME);
-    let session = Session::builder()?.commit_from_file(model_path)?;
+    let session = build_session(&model_path, NORMAL_SHA256, None)?;
     let normal_model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
