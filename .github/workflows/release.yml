@@ -6,6 +6,8 @@ on:
 
 jobs:
   release:
+    # Only app releases (vX.Y.Z). AI model releases such as sky-v1 hold a single model file.
+    if: ${{ startsWith(github.event.release.tag_name, 'v') }}
     strategy:
       fail-fast: false
       matrix:
