@@ -1359,7 +1359,12 @@
       "sharpness": "锐度：{{sharpness}}",
       "similarGroupsTab": "相似组",
       "similarityThreshold": "相似度阈值",
-      "similarityThresholdDesc": "值越低越严格（完全重复）。值越高越宽松（近似重复）。建议值 24-32。",
+      "similarityThresholdDesc": "照片需要达到多高的相似度（百分比）才会被分为一组。值越高越严格。一分钟内拍摄的照片会更容易被分为一组。使用 AI 搜索模型，首次需下载约 500 MB。",
+      "stages": {
+        "analyzing": "正在检查对焦和曝光...",
+        "comparing": "正在比较照片...",
+        "grouping": "正在分组相似照片..."
+      },
       "startCulling": "开始筛选",
       "starting": "启动中...",
       "title": "筛选图像"

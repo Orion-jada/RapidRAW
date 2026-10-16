@@ -1391,7 +1391,12 @@
       "sharpness": "Nitidezza: {{sharpness}}",
       "similarGroupsTab": "Gruppi Simili",
       "similarityThreshold": "Soglia Somiglianza",
-      "similarityThresholdDesc": "Più basso è più severo (duplicati esatti). Più alto è più permissivo (quasi duplicati). Si raccomanda un valore di 24-32.",
+      "similarityThresholdDesc": "Quanto devono somigliarsi le foto, in percentuale, per essere raggruppate. Un valore più alto è più severo. Gli scatti a meno di un minuto di distanza vengono raggruppati un po' più facilmente. Usa il modello di ricerca IA, scaricato una sola volta (circa 500 MB).",
+      "stages": {
+        "analyzing": "Controllo di messa a fuoco ed esposizione...",
+        "comparing": "Confronto degli scatti...",
+        "grouping": "Raggruppamento degli scatti simili..."
+      },
       "startCulling": "Avvia Selezione",
       "starting": "Avvio in corso...",
       "title": "Selezione Immagini"

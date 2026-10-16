@@ -1389,7 +1389,12 @@
       "sharpness": "Nitidez: {{sharpness}}",
       "similarGroupsTab": "Grupos similares",
       "similarityThreshold": "Umbral de similitud",
-      "similarityThresholdDesc": "Más bajo es más estricto (duplicados exactos). Más alto es más flexible (casi duplicados). Se recomienda un valor de 24-32.",
+      "similarityThresholdDesc": "Cuánto deben parecerse las fotos, en porcentaje, para agruparse. Un valor más alto es más estricto. Las tomas hechas con menos de un minuto de diferencia se agrupan con algo más de facilidad. Usa el modelo de búsqueda con IA, una descarga única de unos 500 MB.",
+      "stages": {
+        "analyzing": "Comprobando enfoque y exposición...",
+        "comparing": "Comparando tomas...",
+        "grouping": "Agrupando tomas similares..."
+      },
       "startCulling": "Iniciar cribado",
       "starting": "Iniciando...",
       "title": "Cribar imágenes"

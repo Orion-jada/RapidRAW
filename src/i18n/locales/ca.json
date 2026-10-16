@@ -1363,7 +1363,12 @@
       "sharpness": "Nitidesa: {{sharpness}}",
       "similarGroupsTab": "Grups similars",
       "similarityThreshold": "Llindar de similitud",
-      "similarityThresholdDesc": "Més baix és més estricte (duplicats exactes). Més alt és més flexible (gairebé duplicats). Es recomana un valor de 24 a 32.",
+      "similarityThresholdDesc": "Quant s'han d'assemblar les fotos, en percentatge, per agrupar-les. Un valor més alt és més estricte. Les fotos fetes amb menys d'un minut de diferència s'agrupen una mica més fàcilment. Fa servir el model de cerca amb IA, una baixada única d'uns 500 MB.",
+      "stages": {
+        "analyzing": "S'estan comprovant l'enfocament i l'exposició...",
+        "comparing": "S'estan comparant les fotos...",
+        "grouping": "S'estan agrupant les fotos semblants..."
+      },
       "startCulling": "Iniciar cribratge",
       "starting": "S'està iniciant...",
       "title": "Cribrar imatges"

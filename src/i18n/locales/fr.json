@@ -1389,7 +1389,12 @@
       "sharpness": "Netteté : {{sharpness}}",
       "similarGroupsTab": "Groupes similaires",
       "similarityThreshold": "Seuil de similarité",
-      "similarityThresholdDesc": "Une valeur plus basse est plus stricte (doublons exacts). Une valeur plus élevée est plus souple (quasi-doublons). Une valeur de 24 à 32 est recommandée.",
+      "similarityThresholdDesc": "Degré de ressemblance, en pourcentage, pour que des photos soient groupées. Une valeur plus élevée est plus stricte. Les photos prises à moins d'une minute d'intervalle sont groupées un peu plus facilement. Utilise le modèle de recherche IA, téléchargé une seule fois (environ 500 Mo).",
+      "stages": {
+        "analyzing": "Vérification de la mise au point et de l'exposition...",
+        "comparing": "Comparaison des photos...",
+        "grouping": "Regroupement des photos similaires..."
+      },
       "startCulling": "Démarrer le tri",
       "starting": "Démarrage...",
       "title": "Trier les images"

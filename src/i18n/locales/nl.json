@@ -1338,7 +1338,12 @@
       "sharpness": "Scherpte: {{sharpness}}",
       "similarGroupsTab": "Vergelijkbare groepen",
       "similarityThreshold": "Gelijkheidsdrempel",
-      "similarityThresholdDesc": "Lager is strenger (exacte duplicaten). Hoger is losser (bijna-duplicaten). Een waarde van 24-32 wordt aanbevolen.",
+      "similarityThresholdDesc": "Hoeveel foto's (in procenten) op elkaar moeten lijken om gegroepeerd te worden. Hoger is strenger. Opnamen binnen een minuut van elkaar worden iets eerder gegroepeerd. Gebruikt het AI-zoekmodel, een eenmalige download van ongeveer 500 MB.",
+      "stages": {
+        "analyzing": "Scherpstelling en belichting controleren...",
+        "comparing": "Opnamen vergelijken...",
+        "grouping": "Vergelijkbare opnamen groeperen..."
+      },
       "startCulling": "Selectie starten",
       "starting": "Starten...",
       "title": "Afbeeldingen selecteren"

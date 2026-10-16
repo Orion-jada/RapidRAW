@@ -1361,7 +1361,12 @@
       "sharpness": "Schärfe: {{sharpness}}",
       "similarGroupsTab": "Ähnliche Gruppen",
       "similarityThreshold": "Ähnlichkeits-Schwellenwert",
-      "similarityThresholdDesc": "Niedriger ist strenger (exakte Duplikate). Höher ist lockerer. 24-32 wird empfohlen.",
+      "similarityThresholdDesc": "Wie ähnlich sich Fotos (in Prozent) sein müssen, um gruppiert zu werden. Höher ist strenger. Aufnahmen innerhalb einer Minute werden etwas eher gruppiert. Nutzt das KI-Suchmodell, einmaliger Download von etwa 500 MB.",
+      "stages": {
+        "analyzing": "Fokus und Belichtung werden geprüft...",
+        "comparing": "Aufnahmen werden verglichen...",
+        "grouping": "Ähnliche Aufnahmen werden gruppiert..."
+      },
       "startCulling": "Aussortieren starten",
       "starting": "Wird gestartet...",
       "title": "Bilder aussortieren"

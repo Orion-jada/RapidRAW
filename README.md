@@ -696,6 +696,7 @@ These features are integrated directly into RapidRAW and run entirely on your lo
 - **AI Masking:** Instantly detect and mask subjects, skies, foregrounds, and depth maps (powered by SAM 2, BiRefNet, SkyWater-Seg, and Depth Anything V2).
 - **Automatic Tagging:** The image library is automatically indexed with keywords using a local CLIP model for effortless search.
 - **Natural-Language Search:** Turn on AI search (the sparkles button in the library search bar) and describe a photo, like "dog on a beach" or "red car at night", in any of many languages. A local SigLIP 2 model ranks the folder by relevance, running on the GPU on Apple Silicon.
+- **Smart Culling:** Groups bursts and near-duplicates by what is in the frame (with the same SigLIP 2 model) and by capture time, picks the sharpest, best-exposed shot of each group, and flags out-of-focus or motion-blurred photos by measuring how wide their sharpest edges are, which a noisy high-ISO photo cannot fool.
 - **Simple Generative Replace:** A lightweight, CPU-based inpainting tool (via LaMa) for removing sensor dust, blemishes, and small distractions.
 
 ### 2. Self-Hosted Integration with ComfyUI (Local & Free)

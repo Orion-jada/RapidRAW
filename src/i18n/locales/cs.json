@@ -1360,7 +1360,12 @@
       "sharpness": "Ostrost: {{sharpness}}",
       "similarGroupsTab": "Skupiny podobných snímků",
       "similarityThreshold": "Práh podobnosti",
-      "similarityThresholdDesc": "Nižší hodnota je přísnější (přesné duplikáty). Vyšší hodnota je volnější (téměř duplikáty). Doporučená hodnota je 24–32.",
+      "similarityThresholdDesc": "Jak moc (v procentech) si fotky musí být podobné, aby se seskupily. Vyšší hodnota je přísnější. Snímky pořízené do minuty od sebe se seskupují o něco snáz. Používá model vyhledávání AI, jednorázové stažení asi 500 MB.",
+      "stages": {
+        "analyzing": "Kontroluji zaostření a expozici...",
+        "comparing": "Porovnávám snímky...",
+        "grouping": "Seskupuji podobné snímky..."
+      },
       "startCulling": "Spustit třídění",
       "starting": "Spouštění...",
       "title": "Třídění snímků"

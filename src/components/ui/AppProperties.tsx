@@ -470,7 +470,9 @@ export interface WaveformData {
 }
 
 export interface CullingSettings {
+  /** Percent alike two photos must be to be grouped. */
   similarityThreshold: number;
+  /** Photos with a sharpness score (0-100) below this are flagged. */
   blurThreshold: number;
   groupSimilar: boolean;
   filterBlurry: boolean;
@@ -479,8 +481,9 @@ export interface CullingSettings {
 interface ImageAnalysisResult {
   path: string;
   qualityScore: number;
-  sharpnessMetric: number;
-  centerFocusMetric: number;
+  /** 0-100; null when the photo has too little detail to judge. */
+  sharpnessMetric: number | null;
+  edgeWidth: number | null;
   exposureMetric: number;
   width: number;
   height: number;

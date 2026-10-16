@@ -1359,7 +1359,12 @@
       "sharpness": "シャープネス: {{sharpness}}",
       "similarGroupsTab": "類似グループ",
       "similarityThreshold": "類似度のしきい値",
-      "similarityThresholdDesc": "低いほど厳密（完全な重複）になります。高いほど緩やか（類似画像）になります。24-32の値を推奨します。",
+      "similarityThresholdDesc": "グループ化するために必要な写真の類似度（パーセント）。高いほど厳密になります。1 分以内に撮影された写真は少しまとまりやすくなります。AI 検索モデルを使用します（初回のみ約 500 MB をダウンロード）。",
+      "stages": {
+        "analyzing": "ピントと露出を確認中...",
+        "comparing": "写真を比較中...",
+        "grouping": "類似した写真をグループ化中..."
+      },
       "startCulling": "選別を開始",
       "starting": "開始中...",
       "title": "画像を選別"

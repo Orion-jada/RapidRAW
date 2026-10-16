@@ -14,7 +14,7 @@ import { TextColors, TextVariants } from '../../types/typography';
 interface CullingModalProps {
   isOpen: boolean;
   onClose(): void;
-  progress: Progress | null;
+  progress: (Progress & { stage?: string }) | null;
   suggestions: CullingSuggestions | null;
   error: string | null;
   imagePaths: string[];
@@ -24,6 +24,10 @@ interface CullingModalProps {
 }
 
 type CullAction = 'reject' | 'rate_zero' | 'delete';
+
+const DEFAULT_SIMILARITY = 92;
+const DEFAULT_BLUR_THRESHOLD = 35;
+const PROGRESS_STAGES = ['analyzing', 'comparing', 'grouping'] as const;
 
 function ImageThumbnail({ path, thumbnails, isSelected, onToggle, children }: any) {
   const thumbnailUrl = thumbnails[path];
@@ -77,9 +81,9 @@ export default function CullingModal({
 
   const [settings, setSettings] = useState<CullingSettings>({
     groupSimilar: true,
-    similarityThreshold: 28,
+    similarityThreshold: DEFAULT_SIMILARITY,
     filterBlurry: true,
-    blurThreshold: 100.0,
+    blurThreshold: DEFAULT_BLUR_THRESHOLD,
   });
 
   const [selectedRejects, setSelectedRejects] = useState<Set<string>>(new Set());
@@ -183,11 +187,11 @@ export default function CullingModal({
             <div className="mt-2 pl-4 border-l-2 border-border-color ml-1">
               <Slider
                 label={t('modals.culling.similarityThreshold')}
-                min={1}
-                max={64}
+                min={80}
+                max={99}
                 step={1}
                 value={settings.similarityThreshold}
-                defaultValue={28}
+                defaultValue={DEFAULT_SIMILARITY}
                 onChange={(e) => setSettings((s) => ({ ...s, similarityThreshold: Number(e.target.value) }))}
                 fillOrigin="min"
               />
@@ -207,11 +211,11 @@ export default function CullingModal({
             <div className="mt-2  pl-4 border-l-2 border-border-color ml-1">
               <Slider
                 label={t('modals.culling.blurThreshold')}
-                min={25}
-                max={500}
-                step={25}
+                min={5}
+                max={80}
+                step={5}
                 value={settings.blurThreshold}
-                defaultValue={100.0}
+                defaultValue={DEFAULT_BLUR_THRESHOLD}
                 onChange={(e) => setSettings((s) => ({ ...s, blurThreshold: Number(e.target.value) }))}
                 fillOrigin="min"
               />
@@ -237,12 +241,16 @@ export default function CullingModal({
   const renderProgress = () => (
     <div className="flex flex-col items-center justify-center h-48">
       <Loader2 className="w-16 h-16 text-accent animate-spin" />
-      <p className="mt-4 text-text-primary">{progress?.stage || t('modals.culling.starting')}</p>
+      <p className="mt-4 text-text-primary">
+        {progress?.stage && (PROGRESS_STAGES as readonly string[]).includes(progress.stage)
+          ? t(`modals.culling.stages.${progress.stage as (typeof PROGRESS_STAGES)[number]}`)
+          : t('modals.culling.starting')}
+      </p>
       {progress && progress.total > 0 && (
         <div className="w-full bg-surface rounded-full h-2.5 mt-2">
           <div
             className="bg-accent h-2.5 rounded-full"
-            style={{ width: `${(progress.current / progress.total) * 100}%` }}
+            style={{ width: `${((progress.current ?? 0) / progress.total) * 100}%` }}
           />
         </div>
       )}
@@ -389,7 +397,7 @@ export default function CullingModal({
                       isSelected={selectedRejects.has(img.path)}
                       onToggle={() => handleToggleReject(img.path)}
                     >
-                      {t('modals.culling.sharpness', { sharpness: img.sharpnessMetric.toFixed(0) })}
+                      {t('modals.culling.sharpness', { sharpness: img.sharpnessMetric?.toFixed(0) ?? '–' })}
                     </ImageThumbnail>
                   ))}
                 </div>

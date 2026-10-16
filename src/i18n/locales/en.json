@@ -1361,7 +1361,12 @@
       "sharpness": "Sharpness: {{sharpness}}",
       "similarGroupsTab": "Similar Groups",
       "similarityThreshold": "Similarity Threshold",
-      "similarityThresholdDesc": "Lower is stricter (exact duplicates). Higher is looser (near duplicates). A value of 24-32 is recommended.",
+      "similarityThresholdDesc": "How alike photos must be, in percent, to be grouped. Higher is stricter. Shots taken within a minute of each other group a little more readily. Uses the AI search model, a one-time download of about 500 MB.",
+      "stages": {
+        "analyzing": "Checking focus and exposure...",
+        "comparing": "Comparing shots...",
+        "grouping": "Grouping similar shots..."
+      },
       "startCulling": "Start Culling",
       "starting": "Starting...",
       "title": "Cull Images"

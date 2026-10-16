@@ -202,20 +202,24 @@ fn select_matches(mut scored: Vec<(String, f32)>) -> Vec<SemanticMatch> {
         .collect()
 }
 
-fn search(
-    app_handle: &AppHandle,
-    models: &SearchModels,
-    query: &str,
-    paths: Vec<String>,
-    generation: u64,
-) -> Result<Vec<SemanticMatch>> {
-    let started = Instant::now();
-    let text = embed_text(models, query)?;
-    let keys: Vec<Option<String>> = paths
+fn index_keys(paths: &[String]) -> Vec<Option<String>> {
+    paths
         .par_iter()
         .map(|path| file_management::get_cache_key_hash(path).filter(|k| k.len() == KEY_LEN))
-        .collect();
+        .collect()
+}
 
+/// Embeds the photos among `paths` that aren't in the index yet, a batch at a time, calling
+/// `progress(done, total)` after each batch. Stops with an error once `should_stop` is true.
+fn ensure_indexed(
+    app_handle: &AppHandle,
+    models: &SearchModels,
+    paths: &[String],
+    keys: &[Option<String>],
+    progress: &dyn Fn(usize, usize),
+    should_stop: &dyn Fn() -> bool,
+) -> Result<()> {
+    let started = Instant::now();
     let cache_dir = app_handle.path().app_cache_dir()?;
     fs::create_dir_all(&cache_dir)?;
     let missing: Vec<(&String, &String)> = {
@@ -225,62 +229,103 @@ fn search(
         let mut queued = HashSet::new();
         paths
             .iter()
-            .zip(&keys)
+            .zip(keys)
             .filter_map(|(path, key)| Some((path, key.as_ref()?)))
             .filter(|(_, key)| !index.entries.contains_key(*key) && queued.insert(*key))
             .collect()
     };
+    if missing.is_empty() {
+        return Ok(());
+    }
 
-    if !missing.is_empty() {
-        let thumb_dir = file_management::get_thumb_cache_dir(app_handle).map_err(|e| anyhow!(e))?;
-        let gpu_context = crate::gpu_processing::get_or_init_gpu_context(
-            &app_handle.state::<AppState>(),
-            app_handle,
-        )
-        .ok();
-        let total = missing.len();
-        let _ = app_handle.emit(
-            "semantic-search-progress",
-            serde_json::json!({ "current": 0, "total": total }),
-        );
+    let thumb_dir = file_management::get_thumb_cache_dir(app_handle).map_err(|e| anyhow!(e))?;
+    let gpu_context =
+        crate::gpu_processing::get_or_init_gpu_context(&app_handle.state::<AppState>(), app_handle)
+            .ok();
+    let total = missing.len();
+    progress(0, total);
 
-        for (i, batch) in missing.chunks(BATCH).enumerate() {
-            if SEARCH_GENERATION.load(Ordering::SeqCst) != generation {
-                return Err(anyhow!("Search superseded by a newer query"));
-            }
-            let tensors: Vec<(String, Option<Array4<f32>>)> = batch
-                .par_iter()
-                .map(|(path, key)| {
-                    let image =
-                        load_thumbnail(path, key, &thumb_dir, app_handle, gpu_context.as_ref());
-                    if let Err(e) = &image {
-                        log::warn!("Search: no thumbnail for {}: {}", path, e);
-                    }
-                    ((*key).clone(), image.ok().map(|img| image_tensor(&img)))
-                })
-                .collect();
-
-            let mut embedded = Vec::with_capacity(tensors.len());
-            for (key, tensor) in tensors {
-                if let Some(tensor) = tensor {
-                    embedded.push((key, embed_image(models, tensor)?));
+    for (i, batch) in missing.chunks(BATCH).enumerate() {
+        if should_stop() {
+            return Err(anyhow!("Superseded by a newer search"));
+        }
+        let tensors: Vec<(String, Option<Array4<f32>>)> = batch
+            .par_iter()
+            .map(|(path, key)| {
+                let image = load_thumbnail(path, key, &thumb_dir, app_handle, gpu_context.as_ref());
+                if let Err(e) = &image {
+                    log::warn!("Search: no thumbnail for {}: {}", path, e);
                 }
-            }
-            if let Some(index) = INDEX.lock().unwrap().as_mut() {
-                index.append(embedded)?;
-            }
+                ((*key).clone(), image.ok().map(|img| image_tensor(&img)))
+            })
+            .collect();
 
+        let mut embedded = Vec::with_capacity(tensors.len());
+        for (key, tensor) in tensors {
+            if let Some(tensor) = tensor {
+                embedded.push((key, embed_image(models, tensor)?));
+            }
+        }
+        if let Some(index) = INDEX.lock().unwrap().as_mut() {
+            index.append(embedded)?;
+        }
+        progress(((i + 1) * BATCH).min(total), total);
+    }
+    log::info!(
+        "Search: embedded {} photos in {:.1}s",
+        total,
+        started.elapsed().as_secs_f32()
+    );
+    Ok(())
+}
+
+/// Unit-length image embeddings for `paths`, computing any that aren't cached yet; `None`
+/// where a photo couldn't be read. Similar photos have a dot product close to 1.
+pub fn image_embeddings(
+    app_handle: &AppHandle,
+    models: &SearchModels,
+    paths: &[String],
+    progress: &dyn Fn(usize, usize),
+) -> Result<Vec<Option<Vec<f32>>>> {
+    let keys = index_keys(paths);
+    ensure_indexed(app_handle, models, paths, &keys, progress, &|| false)?;
+    let index = INDEX.lock().unwrap();
+    let entries = &index
+        .as_ref()
+        .ok_or_else(|| anyhow!("Search index missing"))?
+        .entries;
+    Ok(keys
+        .iter()
+        .map(|key| {
+            let embedding = entries.get(key.as_ref()?)?;
+            Some(embedding.iter().map(|v| v.to_f32()).collect())
+        })
+        .collect())
+}
+
+fn search(
+    app_handle: &AppHandle,
+    models: &SearchModels,
+    query: &str,
+    paths: Vec<String>,
+    generation: u64,
+) -> Result<Vec<SemanticMatch>> {
+    let started = Instant::now();
+    let text = embed_text(models, query)?;
+    let keys = index_keys(&paths);
+    ensure_indexed(
+        app_handle,
+        models,
+        &paths,
+        &keys,
+        &|current, total| {
             let _ = app_handle.emit(
                 "semantic-search-progress",
-                serde_json::json!({ "current": ((i + 1) * BATCH).min(total), "total": total }),
+                serde_json::json!({ "current": current, "total": total }),
             );
-        }
-        log::info!(
-            "Search: embedded {} photos in {:.1}s",
-            total,
-            started.elapsed().as_secs_f32()
-        );
-    }
+        },
+        &|| SEARCH_GENERATION.load(Ordering::SeqCst) != generation,
+    )?;
 
     let scored: Vec<(String, f32)> = {
         let index = INDEX.lock().unwrap();

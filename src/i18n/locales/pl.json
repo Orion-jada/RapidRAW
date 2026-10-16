@@ -1417,7 +1417,12 @@
       "sharpness": "Ostrość: {{sharpness}}",
       "similarGroupsTab": "Podobne grupy",
       "similarityThreshold": "Próg podobieństwa",
-      "similarityThresholdDesc": "Niższa wartość = ostrzejsze (dokładne duplikaty). Wyższa wartość = luźniejsze (zbliżone duplikaty). Rekomendowana wartość: 24-32.",
+      "similarityThresholdDesc": "Jak bardzo (w procentach) zdjęcia muszą być podobne, aby je pogrupować. Wyższa wartość jest bardziej rygorystyczna. Ujęcia zrobione w odstępie poniżej minuty są grupowane nieco łatwiej. Korzysta z modelu wyszukiwania AI, pobieranego jednorazowo (ok. 500 MB).",
+      "stages": {
+        "analyzing": "Sprawdzanie ostrości i ekspozycji...",
+        "comparing": "Porównywanie ujęć...",
+        "grouping": "Grupowanie podobnych ujęć..."
+      },
       "startCulling": "Rozpocznij selekcję",
       "starting": "Rozpoczynanie...",
       "title": "Selekcja obrazów"

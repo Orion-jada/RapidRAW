@@ -1359,7 +1359,12 @@
       "sharpness": "선명도: {{sharpness}}",
       "similarGroupsTab": "유사한 그룹",
       "similarityThreshold": "유사도 임계값",
-      "similarityThresholdDesc": "값이 낮을수록 더 엄격합니다 (완전 중복). 높을수록 더 느슨합니다 (유사 중복). 24~32 값을 권장합니다.",
+      "similarityThresholdDesc": "사진을 그룹으로 묶기 위해 필요한 유사도(퍼센트)입니다. 높을수록 엄격합니다. 1분 이내에 찍은 사진은 조금 더 쉽게 묶입니다. AI 검색 모델을 사용하며, 처음 한 번 약 500MB를 다운로드합니다.",
+      "stages": {
+        "analyzing": "초점과 노출 확인 중...",
+        "comparing": "사진 비교 중...",
+        "grouping": "비슷한 사진 그룹화 중..."
+      },
       "startCulling": "선별 시작",
       "starting": "시작 중...",
       "title": "이미지 선별"
