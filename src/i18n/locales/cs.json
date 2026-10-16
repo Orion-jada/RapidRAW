@@ -1948,6 +1948,7 @@
     "thanks": {
       "description": "Velké poděkování patří následujícím projektům, které byly velmi důležité při vývoji RapidRAW:",
       "list": {
+        "birefnet": "Za vysoce přesný segmentační model, který pohání detekci popředí pomocí AI.",
         "darktable": "Pro některé referenční implementace, které vedly části této práce.",
         "depth": "Pro výkonný monokulární model odhadu hloubky, který umožňuje AI hloubkové maskování.",
         "lama": "Pro výkonný a jednoduchý model malování snímků, který umožňuje výplň a odstraňování objektů s ohledem na obsah.",
@@ -1958,7 +1959,7 @@
         "rawler": "Za vynikající přepravku Rust, která poskytuje základ pro zpracování souborů RAW v tomto projektu.",
         "sam2": "Za poskytnutí základního modelu používaného pro schopnosti detekce předmětů AI.",
         "spektrafilm": "Pro spektrálně založené filmové emulační LUT od Andrey Volpata, použité pro vestavěné filmové emulace v RapidRAW. Licence CC BY-SA 4.0.",
-        "u2net": "Pro zajištění robustní architektury používané pro schopnosti detekce oblohy a popředí AI.",
+        "u2net": "Pro zajištění robustní architektury používané pro schopnosti detekce oblohy AI.",
         "you": "Za používání a podporu RapidRAW. Váš zájem udržuje tento projekt živý a rozvíjející se.",
         "youLabel": "Vy"
       },

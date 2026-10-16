@@ -1949,6 +1949,7 @@
     "thanks": {
       "description": "Ein großes Dankeschön an die folgenden Projekte, die für die Entwicklung von RapidRAW sehr wichtig waren:",
       "list": {
+        "birefnet": "Für das hochpräzise Segmentierungsmodell hinter der KI-Vordergrunderkennung.",
         "darktable": "Für Referenzimplementierungen, die Teile dieser Arbeit leiteten.",
         "depth": "Für das Modell zur monokularen Tiefenschätzung (Tiefenmasken).",
         "lama": "Für das leistungsstarke Bild-Inpainting-Modell.",
@@ -1959,7 +1960,7 @@
         "rawler": "Für die hervorragende Rust-Crate zur RAW-Bildverarbeitung.",
         "sam2": "Für das grundlegende Modell der KI-Motiverkennung.",
         "spektrafilm": "Für die spektralbasierten Filmemulations-LUTs von Andrea Volpato, die RapidRAWs integrierte Filmemulationen ermöglichen. Lizenziert unter CC BY-SA 4.0.",
-        "u2net": "Für die Architektur zur Erkennung von Himmel und Vordergrund.",
+        "u2net": "Für die Architektur zur Erkennung des Himmels.",
         "you": "Dafür, dass Sie RapidRAW nutzen. Ihr Interesse hält dieses Projekt am Leben.",
         "youLabel": "Ihnen"
       },

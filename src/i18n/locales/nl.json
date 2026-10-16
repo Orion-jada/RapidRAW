@@ -1922,6 +1922,7 @@
     "thanks": {
       "description": "Veel dank aan de volgende projecten die zeer belangrijk waren bij de ontwikkeling van RapidRAW:",
       "list": {
+        "birefnet": "Voor het nauwkeurige segmentatiemodel achter de AI-voorgronddetectie.",
         "darktable": "Voor enkele referentie-implementaties die delen van dit werk hebben geleid.",
         "depth": "Voor het krachtige monoculaire diepteschattingsmodel dat de AI-dieptemaskering mogelijk maakt.",
         "lama": "Voor het krachtige en eenvoudige afbeeldingsinpainting-model dat inhoudsgebaseerde opvulling en objectverwijdering mogelijk maakt.",
@@ -1932,7 +1933,7 @@
         "rawler": "Voor de uitstekende Rust-crate die de basis vormt voor RAW-bestandsverwerking in dit project.",
         "sam2": "Voor het leveren van het basismodel dat wordt gebruikt voor de AI-onderwerpdetectiemogelijkheden.",
         "spektrafilm": "Voor de spectraalgebaseerde filmemulatie-LUT's door Andrea Volpato, gebruikt voor de ingebouwde filmemulaties van RapidRAW. Gelicenseerd onder CC BY-SA 4.0.",
-        "u2net": "Voor het leveren van de robuuste architectuur die wordt gebruikt voor de AI-lucht- en voorgronddetectiemogelijkheden.",
+        "u2net": "Voor het leveren van de robuuste architectuur die wordt gebruikt voor de AI-luchtdetectiemogelijkheden.",
         "you": "Voor het gebruiken en ondersteunen van RapidRAW. Uw interesse houdt dit project levend en evoluerend.",
         "youLabel": "U"
       },

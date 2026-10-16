@@ -1984,6 +1984,7 @@
     "thanks": {
       "description": "Un grand merci aux projets suivants qui ont été très importants dans le développement de RapidRAW :",
       "list": {
+        "birefnet": "Pour le modèle de segmentation de haute précision qui alimente la détection du premier plan par l'IA.",
         "darktable": "Pour certaines implémentations de référence qui ont guidé une partie de ce travail.",
         "depth": "Pour le puissant modèle d'estimation de profondeur monoculaire qui permet les capacités de masquage de profondeur par l'IA.",
         "lama": "Pour le modèle d'inpainting d'image puissant & simple, qui permet le remplissage génératif et la suppression d'objets.",
@@ -1994,7 +1995,7 @@
         "rawler": "Pour l'excellente crate Rust qui fournit la base du traitement des fichiers RAW dans ce projet.",
         "sam2": "Pour avoir fourni le modèle de base utilisé pour les capacités de détection de sujet par IA.",
         "spektrafilm": "Pour les LUTs d'émulation de film à base spectrale d'Andrea Volpato, qui alimentent les émulations intégrées de RapidRAW. Sous licence CC BY-SA 4.0.",
-        "u2net": "Pour avoir fourni l'architecture robuste utilisée pour les capacités de détection du ciel et du premier plan par l'IA.",
+        "u2net": "Pour avoir fourni l'architecture robuste utilisée pour les capacités de détection du ciel par l'IA.",
         "you": "À vous, pour l'utilisation et le soutien de RapidRAW. Votre intérêt maintient ce projet vivant et en évolution.",
         "youLabel": "Vous"
       },

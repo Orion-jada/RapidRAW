@@ -1883,6 +1883,17 @@ export default function SettingsPanel({
                       </li>
                       <li>
                         <a
+                          href="https://github.com/ZhengPeng7/BiRefNet"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-accent hover:underline"
+                        >
+                          BiRefNet
+                        </a>
+                        : {t('settings.thanks.list.birefnet')}
+                      </li>
+                      <li>
+                        <a
                           href="https://github.com/DepthAnything/Depth-Anything-V2"
                           target="_blank"
                           rel="noopener noreferrer"

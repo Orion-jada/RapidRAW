@@ -28,11 +28,12 @@ const SAM_INPUT_SIZE: u32 = 1024;
 const ENCODER_SHA256: &str = "16ab73d9c824886f0de2938c19df22fb9ec3deebfd0de58e65177e479213d7d1";
 const DECODER_SHA256: &str = "85d0d672cf5b7fe763edcde429e5533e62f674af4b15c7d688b7673b0ef00bf7";
 
-const U2NETP_URL: &str =
-    "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/u2net.onnx?download=true";
-const U2NETP_FILENAME: &str = "u2net.onnx";
-const U2NETP_INPUT_SIZE: u32 = 320;
-const U2NETP_SHA256: &str = "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491";
+// BiRefNet (general, 1024px), re-exported so all of it runs in one CoreML partition; weights
+// are stored as float16 and cast back to float32 at load. Outputs probabilities.
+const BIREFNET_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/birefnet-v1/birefnet_general_1024_coreml.onnx";
+const BIREFNET_FILENAME: &str = "birefnet_general_1024_coreml.onnx";
+const BIREFNET_INPUT_SIZE: u32 = 1024;
+const BIREFNET_SHA256: &str = "5b243f8c509c05374f0c42c692e9c2dbf4c58ad151fd6531b55bfa8b4f8618e9";
 
 const SKYSEG_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/skyseg-u2net.onnx?download=true";
 const SKYSEG_FILENAME: &str = "skyseg_u2net.onnx";
@@ -70,7 +71,6 @@ const NORMAL_SHA256: &str = "24eacb5dc7a2c54c7bc98f7de085ffbed79ad006ea5b664c2c2
 pub struct AiModels {
     pub sam_encoder: Mutex<Session>,
     pub sam_decoder: Mutex<Session>,
-    pub u2netp: Mutex<Session>,
     pub sky_seg: Mutex<Session>,
     pub depth_anything: Mutex<Session>,
 }
@@ -97,6 +97,7 @@ pub struct CachedDepthMap {
 pub struct AiState {
     pub models: Option<Arc<AiModels>>,
     pub denoise_model: Option<Arc<Mutex<Session>>>,
+    pub foreground_model: Option<Arc<Mutex<Session>>>,
     pub clip_models: Option<Arc<ClipModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
     pub normal_model: Option<Arc<Mutex<Session>>>,
@@ -562,15 +563,6 @@ pub async fn get_or_init_ai_models(
     download_and_verify_model(
         app_handle,
         &models_dir,
-        U2NETP_FILENAME,
-        U2NETP_URL,
-        U2NETP_SHA256,
-        "Foreground Model",
-    )
-    .await?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
         SKYSEG_FILENAME,
         SKYSEG_URL,
         SKYSEG_SHA256,
@@ -591,17 +583,11 @@ pub async fn get_or_init_ai_models(
 
     let encoder_path = models_dir.join(ENCODER_FILENAME);
     let decoder_path = models_dir.join(DECODER_FILENAME);
-    let u2netp_path = models_dir.join(U2NETP_FILENAME);
     let sky_seg_path = models_dir.join(SKYSEG_FILENAME);
     let depth_path = models_dir.join(DEPTH_FILENAME);
 
     let sam_encoder = build_session(&encoder_path, ENCODER_SHA256, None)?;
     let sam_decoder = build_session(&decoder_path, DECODER_SHA256, None)?;
-    let u2netp = build_session(
-        &u2netp_path,
-        U2NETP_SHA256,
-        Some(CoreMLComputeUnits::CPUAndNeuralEngine),
-    )?;
     let sky_seg = build_session(
         &sky_seg_path,
         SKYSEG_SHA256,
@@ -618,7 +604,6 @@ pub async fn get_or_init_ai_models(
     let models = Arc::new(AiModels {
         sam_encoder: Mutex::new(sam_encoder),
         sam_decoder: Mutex::new(sam_decoder),
-        u2netp: Mutex::new(u2netp),
         sky_seg: Mutex::new(sky_seg),
         depth_anything: Mutex::new(depth_anything),
     });
@@ -630,6 +615,7 @@ pub async fn get_or_init_ai_models(
         *ai_state_lock = Some(AiState {
             models: Some(models.clone()),
             denoise_model: None,
+            foreground_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: None,
@@ -695,6 +681,7 @@ pub async fn get_or_init_denoise_model(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: Some(denoise_model.clone()),
+            foreground_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: None,
@@ -704,6 +691,72 @@ pub async fn get_or_init_denoise_model(
     }
 
     Ok(denoise_model)
+}
+
+pub async fn get_or_init_foreground_model(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<Mutex<Session>>> {
+    if let Some(foreground_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.foreground_model.clone())
+    {
+        return Ok(foreground_model);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(foreground_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.foreground_model.clone())
+    {
+        return Ok(foreground_model);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        BIREFNET_FILENAME,
+        BIREFNET_URL,
+        BIREFNET_SHA256,
+        "Foreground Model",
+    )
+    .await?;
+
+    let _ = ort::init().with_name("AI-Foreground").commit();
+    let model_path = models_dir.join(BIREFNET_FILENAME);
+    let session = build_session(
+        &model_path,
+        BIREFNET_SHA256,
+        Some(CoreMLComputeUnits::CPUAndGPU),
+    )?;
+    let foreground_model = Arc::new(Mutex::new(session));
+
+    crate::register_exit_handler();
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.foreground_model = Some(foreground_model.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            foreground_model: Some(foreground_model.clone()),
+            clip_models: None,
+            lama_model: None,
+            normal_model: None,
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(foreground_model)
 }
 
 pub async fn get_or_init_clip_models(
@@ -768,6 +821,7 @@ pub async fn get_or_init_clip_models(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: None,
+            foreground_model: None,
             clip_models: Some(clip_models.clone()),
             lama_model: None,
             normal_model: None,
@@ -829,6 +883,7 @@ pub async fn get_or_init_lama_model(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: None,
+            foreground_model: None,
             clip_models: None,
             lama_model: Some(lama_model.clone()),
             normal_model: None,
@@ -890,6 +945,7 @@ pub async fn get_or_init_normal_model(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: None,
+            foreground_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: Some(normal_model.clone()),
@@ -1671,85 +1727,87 @@ pub fn run_sky_seg_model(
     Ok(final_mask)
 }
 
-pub fn run_u2netp_model(
+/// Foreground mask from BiRefNet. The model expects a plain (stretched) resize to its square
+/// input with ImageNet normalisation, and returns per-pixel probabilities.
+pub fn run_birefnet_model(
     image: &DynamicImage,
-    u2netp_session: &Mutex<Session>,
+    birefnet_session: &Mutex<Session>,
 ) -> Result<GrayImage> {
     let (orig_width, orig_height) = image.dimensions();
+    let size = BIREFNET_INPUT_SIZE as usize;
 
-    let resized_image = image.resize(U2NETP_INPUT_SIZE, U2NETP_INPUT_SIZE, FilterType::Triangle);
-    let (resized_w, resized_h) = resized_image.dimensions();
-    let resized_rgb = resized_image.into_rgb8();
-    let raw_pixels = resized_rgb.as_raw();
+    // Area-average downscale. Convert to 8-bit first: image's thumbnail mis-scales f32 pixels.
+    let resized_rgb =
+        imageops::thumbnail(&image.to_rgb8(), BIREFNET_INPUT_SIZE, BIREFNET_INPUT_SIZE);
 
-    let paste_x = ((U2NETP_INPUT_SIZE - resized_w) / 2) as usize;
-    let paste_y = ((U2NETP_INPUT_SIZE - resized_h) / 2) as usize;
-
-    let mut input_tensor: Array<f32, _> =
-        Array::zeros((1, 3, U2NETP_INPUT_SIZE as usize, U2NETP_INPUT_SIZE as usize));
+    let mut input_tensor: Array<f32, _> = Array::zeros((1, 3, size, size));
 
     let mean = [0.485, 0.456, 0.406];
     let std = [0.229, 0.224, 0.225];
 
-    let rw = resized_w as usize;
-    let rh = resized_h as usize;
-
-    for y in 0..rh {
-        for x in 0..rw {
-            let idx = (y * rw + x) * 3;
-            let dest_y = y + paste_y;
-            let dest_x = x + paste_x;
-
-            input_tensor[[0, 0, dest_y, dest_x]] =
-                (raw_pixels[idx] as f32 / 255.0 - mean[0]) / std[0];
-            input_tensor[[0, 1, dest_y, dest_x]] =
-                (raw_pixels[idx + 1] as f32 / 255.0 - mean[1]) / std[1];
-            input_tensor[[0, 2, dest_y, dest_x]] =
-                (raw_pixels[idx + 2] as f32 / 255.0 - mean[2]) / std[2];
+    for (x, y, pixel) in resized_rgb.enumerate_pixels() {
+        for c in 0..3 {
+            input_tensor[[0, c, y as usize, x as usize]] =
+                (pixel[c] as f32 / 255.0 - mean[c]) / std[c];
         }
     }
 
-    let input_tensor_dyn = input_tensor.into_dyn();
-    let t_input = Tensor::from_array(input_tensor_dyn.as_standard_layout().into_owned())?;
+    let t_input = Tensor::from_array(input_tensor.into_dyn())?;
 
-    let mut session = u2netp_session.lock().unwrap();
-    let outputs = session.run(ort::inputs![t_input])?;
-    let output_tensor = outputs[0].try_extract_array::<f32>()?.to_owned();
-    let out_slice = output_tensor.as_slice().unwrap();
-
-    let mut min_val = f32::MAX;
-    let mut max_val = f32::MIN;
-    for &v in out_slice {
-        min_val = min_val.min(v);
-        max_val = max_val.max(v);
+    let probabilities: Vec<f32> = {
+        let mut session = birefnet_session.lock().unwrap();
+        let outputs = session.run(ort::inputs![t_input])?;
+        outputs[0]
+            .try_extract_array::<f32>()?
+            .iter()
+            .copied()
+            .collect()
+    };
+    if probabilities.len() != size * size {
+        return Err(anyhow::anyhow!("Unexpected BiRefNet output size"));
     }
 
-    let range = max_val - min_val;
-    let scale = if range > 1e-6 { 255.0 / range } else { 0.0 };
+    Ok(upscale_probabilities(
+        &probabilities,
+        size,
+        size,
+        orig_width,
+        orig_height,
+    ))
+}
 
-    let usize_size = U2NETP_INPUT_SIZE as usize;
-    let mut cropped_mask_data = Vec::with_capacity(rw * rh);
+/// Bilinearly resizes a grid of 0..1 probabilities to a `width` x `height` mask, in parallel
+/// over rows. Several times faster than `imageops::resize` for full-resolution photo masks.
+fn upscale_probabilities(
+    src: &[f32],
+    src_w: usize,
+    src_h: usize,
+    width: u32,
+    height: u32,
+) -> GrayImage {
+    let (w, h) = (width as usize, height as usize);
+    let sample = |dst: usize, dst_len: usize, src_len: usize| {
+        let f = ((dst as f32 + 0.5) * src_len as f32 / dst_len as f32 - 0.5)
+            .clamp(0.0, (src_len - 1) as f32);
+        let i0 = f as usize;
+        (i0, (i0 + 1).min(src_len - 1), f - i0 as f32)
+    };
+    let cols: Vec<(usize, usize, f32)> = (0..w).map(|x| sample(x, w, src_w)).collect();
 
-    for y in 0..rh {
-        let src_y = y + paste_y;
-        for x in 0..rw {
-            let src_x = x + paste_x;
-            let val = out_slice[src_y * usize_size + src_x];
-            let pixel = if range > 1e-6 {
-                ((val - min_val) * scale) as u8
-            } else {
-                0
-            };
-            cropped_mask_data.push(pixel);
-        }
-    }
-
-    let cropped_mask = GrayImage::from_raw(resized_w, resized_h, cropped_mask_data)
-        .ok_or_else(|| anyhow::anyhow!("Failed to create mask from U-2-Netp output"))?;
-
-    let final_mask = imageops::resize(&cropped_mask, orig_width, orig_height, FilterType::Triangle);
-
-    Ok(final_mask)
+    let mut out = vec![0u8; w * h];
+    out.par_chunks_mut(w.max(1))
+        .enumerate()
+        .for_each(|(y, row)| {
+            let (y0, y1, wy) = sample(y, h, src_h);
+            let r0 = &src[y0 * src_w..(y0 + 1) * src_w];
+            let r1 = &src[y1 * src_w..(y1 + 1) * src_w];
+            for (o, &(x0, x1, wx)) in row.iter_mut().zip(&cols) {
+                let top = r0[x0] + (r0[x1] - r0[x0]) * wx;
+                let bottom = r1[x0] + (r1[x1] - r1[x0]) * wx;
+                *o = ((top + (bottom - top) * wy).clamp(0.0, 1.0) * 255.0).round() as u8;
+            }
+        });
+    GrayImage::from_raw(width, height, out).expect("buffer matches dimensions")
 }
 
 pub fn run_depth_anything_model(
