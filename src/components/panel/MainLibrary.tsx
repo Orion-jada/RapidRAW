@@ -45,6 +45,11 @@ import SettingsPanel from './SettingsPanel';
 import LibraryGrid from './library/LibraryGrid';
 import { SearchInput, ViewOptionsDropdown } from './library/LibraryHeader';
 
+// Update checks follow this fork's releases, not upstream RapidRAW's. App releases are tagged
+// vX.Y.Z; the AI model releases that share the repository (e.g. `sky-v1`) don't match.
+const RELEASES_REPO = 'Orion-jada/RapidRAW';
+const APP_RELEASE_TAG = /^v(\d+\.\d+\.\d+)$/;
+
 export interface ColumnWidths {
   thumbnail: number;
   name: number;
@@ -301,16 +306,21 @@ export default function MainLibrary(props: MainLibraryProps) {
         const currentVersion = await getVersion();
         setAppVersion(currentVersion);
 
-        const response = await fetch('https://api.github.com/repos/CyberTimon/RapidRAW/releases/latest');
+        const response = await fetch(`https://api.github.com/repos/${RELEASES_REPO}/releases?per_page=30`);
         if (!response.ok) {
-          console.error('Failed to fetch latest release info from GitHub.');
+          console.error('Failed to fetch release info from GitHub.');
           return;
         }
-        const data = await response.json();
-        const latestTag = data.tag_name;
-        if (!latestTag) return;
+        const releases: { tag_name: string; draft: boolean; prerelease: boolean }[] = await response.json();
+        const latestVersionStr = releases
+          .filter((release) => !release.draft && !release.prerelease)
+          .map((release) => APP_RELEASE_TAG.exec(release.tag_name)?.[1])
+          .reduce<string | undefined>(
+            (latest, version) => (version && (!latest || compareVersions(latest, version) < 0) ? version : latest),
+            undefined,
+          );
+        if (!latestVersionStr) return;
 
-        const latestVersionStr = latestTag.startsWith('v') ? latestTag.substring(1) : latestTag;
         setLatestVersion(latestVersionStr);
 
         if (compareVersions(currentVersion, latestVersionStr) < 0) {
@@ -460,7 +470,7 @@ export default function MainLibrary(props: MainLibraryProps) {
                             }`}
                             onClick={() => {
                               if (isUpdateAvailable) {
-                                open('https://github.com/CyberTimon/RapidRAW/releases/latest');
+                                open(`https://github.com/${RELEASES_REPO}/releases/tag/v${latestVersion}`);
                               }
                             }}
                             data-tooltip={

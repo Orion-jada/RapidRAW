@@ -4,37 +4,33 @@
 
 <div align="center">
 
+[![Fork of CyberTimon/RapidRAW](https://img.shields.io/badge/fork_of-CyberTimon%2FRapidRAW-555?style=for-the-badge&logo=github)](https://github.com/CyberTimon/RapidRAW)
+[![Tuned for Apple Silicon](https://img.shields.io/badge/tuned_for-Apple_Silicon-000000?style=for-the-badge&logo=apple&logoColor=white)](#download)
+[![AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg?style=for-the-badge)](https://opensource.org/licenses/AGPL-3.0)
+<br>
 [![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![wgpu](https://img.shields.io/badge/wgpu-%23282C34.svg?style=for-the-badge&logo=webgpu&logoColor=white)](https://wgpu.rs/)
 [![React](https://img.shields.io/badge/react-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)](https://react.dev/)
 [![Tauri](https://img.shields.io/badge/Tauri-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/)
-[![AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg?style=for-the-badge)](https://opensource.org/licenses/AGPL-3.0)
-[![GitHub stars](https://img.shields.io/github/stars/CyberTimon/RapidRAW?style=for-the-badge&logo=github&label=Stars)](https://github.com/CyberTimon/RapidRAW/stargazers)
-<br>
-[![www.getrapidraw.com](https://img.shields.io/badge/getrapidraw.com-%232ea44f?style=for-the-badge&logo=safari&logoColor=white)](https://www.getrapidraw.com)
-[![Instagram](https://img.shields.io/badge/Instagram-%23E4405F.svg?style=for-the-badge&logo=Instagram&logoColor=white)](https://www.instagram.com/timonkaech.photography/)
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/cvFugZ2Hw8)
 
 </div>
 
-# RapidRAW
+# RapidRAW · Orion-jada Edition
 
-> A beautiful, non-destructive, and GPU-accelerated RAW image editor built with performance in mind.
+> Orion-jada's version of [RapidRAW](https://github.com/CyberTimon/RapidRAW), Timon Käch's GPU-accelerated RAW editor, with faster and smarter AI tools tuned for Apple Silicon Macs.
 
-RapidRAW is a modern, high-performance alternative to Adobe Lightroom®. It delivers a simple, beautiful editing experience in a lightweight package (under 20MB) for Windows, macOS, Linux, and Android.
-
-I started developing this project as a personal challenge when I was 18. My goal was to create a high-performance tool for my own photography workflow while deepening my understanding of React, WGSL and Rust.
+This is a fork. It keeps everything in the original RapidRAW and adds the upgrades listed below. Problems with these upgrades belong here, not in the original project's issue tracker.
 
 <table width="100%">
   <tr>
     <td width="50%" valign="top" align="center">
       <br>
-      <a href="https://github.com/CyberTimon/RapidRAW/releases/latest">
-        <img src="https://raw.githubusercontent.com/CyberTimon/RapidRAW/main/src-tauri/icons/full_res_original.png" alt="Download RapidRAW" height="96">
+      <a href="#download">
+        <img src="https://raw.githubusercontent.com/CyberTimon/RapidRAW/main/src-tauri/icons/full_res_original.png" alt="Download" height="96">
       </a>
-      <h3>Download RapidRAW</h3>
-      <p>Get the latest release for Windows, macOS, Linux, and Android. Packaged and ready to run.</p>
-      <strong><a href="https://github.com/CyberTimon/RapidRAW/releases/latest">Download Latest Version →</a></strong>
+      <h3>Download This Version</h3>
+      <p>The Mac app for Apple Silicon, or build it yourself from source.</p>
+      <strong><a href="#download">Download Options →</a></strong>
       <br><br>
     </td>
     <td width="50%" valign="top" align="center">
@@ -43,12 +39,103 @@ I started developing this project as a personal challenge when I was 18. My goal
         <img src="https://raw.githubusercontent.com/CyberTimon/RapidRAW/main/src-tauri/icons/docs.png" alt="Read the Docs" height="96">
       </a>
       <h3>Read the Docs</h3>
-      <p>Learn how RapidRAW works with step-by-step tutorials, from adjustments to masking.</p>
+      <p>The original RapidRAW tutorials, from adjustments to masking. They all apply here.</p>
       <strong><a href="https://www.getrapidraw.com/docs/">View Tutorials & Docs →</a></strong>
       <br><br>
     </td>
   </tr>
 </table>
+
+## What's New in This Version
+
+### Faster AI on Apple Silicon
+
+- **GPU acceleration with CoreML:** AI models run on the Mac's GPU instead of the CPU. AI denoise is 16× faster (82.6 s → 5.2 s for a 32 MP photo on an M3 Max), depth estimation 3× and masks about 2×. Models that don't benefit stay on the CPU. Set `RAPIDRAW_AI_CPU_ONLY=1` to force the CPU for everything.
+
+### Better Masks
+
+- **Subject mask with SAM 2.1:** Replaces SAM 1 with SAM 2.1 (Hiera Base+). Dragging a box now takes about 0.6 s instead of 2 s.
+- **Foreground mask with BiRefNet:** Replaces U²-Net with BiRefNet (1024 px), at about 0.55 s per full-resolution mask on the GPU.
+- **Sky mask with SkyWater-Seg:** Replaces U²-Net with SkyWater-Seg. It picks up small patches of sky, gives clean edges around antennas and rooftops, and no longer marks bright windows or reflections as sky. About 0.5 s per mask.
+- **Subtract from masks:** A **Subtract** button next to "Add New Component" takes away any component type from a mask: brush, linear, radial, AI masks or ranges. Use a brush to trim a subject mask that grabbed too much, or combine linear gradients to shape an exact area. Soft edges fade out instead of leaving hard holes.
+
+### Editing and Export
+
+- **Rebuilt auto-enhance:** Auto-enhance now renders a small preview through the real editing pipeline and tunes exposure, contrast, highlights, shadows, whites and blacks, vibrance and white balance against what the photo actually looks like, in about 0.16 s. Night shots stay dark, and clarity, dehaze and vignette are left alone. Also available in batch and from the command line (`--auto`).
+- **AI denoise for RAW files with RawNIND:** RAW files are denoised by RawNIND on the linear image before tone mapping, which keeps highlight detail (about 2 s for 24 MP). The AI slider is now a simple Strength control. Other files still use NIND.
+- **AI 2× upscale on export:** Doubles width and height with a RealPLKSR super-resolution model, after edits and crop. About a minute per 24 MP photo on the GPU, with a strength slider (default 60%, because full strength smooths fine texture). Also available from the command line (`--ai-upscale`).
+
+### Library
+
+- **Natural-language search:** Click the sparkles button in the library search bar and describe a photo, like "dog on a beach" or "red car at night", in any of many languages. Photos are ranked by relevance using a local SigLIP 2 model. The first search in a folder takes a few seconds; after that, searches take about 10 ms.
+- **Smarter culling:** Focus is judged from each RAW's embedded preview by how wide its sharpest edges are, so high-ISO grain no longer passes for detail and motion blur is caught. Bursts and near-duplicates are grouped by what's in the frame and when they were taken, and the sharpest, best-exposed shot of each group is picked. About 2 s for 23 RAW files.
+
+### Housekeeping
+
+- **Updates come from this fork:** The "new version available" notice checks this repository, not the original, so it never points you to a version without these upgrades.
+- **Old models cleaned up:** Models replaced by the ones above (SAM 1 and both U²-Net models) are deleted at startup, freeing about 460 MB plus their GPU caches.
+
+## Download
+
+### Mac app (Apple Silicon) — recommended
+
+Needs a Mac with an M1 chip or newer, on macOS 13 (Ventura) or later.
+
+1. Download `RapidRAW_1.6.5_aarch64.dmg` from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
+2. Open it and drag **RapidRAW** into **Applications**.
+3. Open RapidRAW. The app isn't notarized by Apple, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the RapidRAW message, then confirm.
+
+This version installs as **RapidRAW** and replaces the original app if you have it. Your library, edits and settings carry over, since both versions share them.
+
+### Build from source
+
+Works on any Mac. Windows and Linux builds should work but haven't been tested with these upgrades, and the GPU speed-ups are Mac-only (elsewhere the AI models run on the CPU).
+
+You'll need [Rust](https://www.rust-lang.org/tools/install), [Node.js](https://nodejs.org/) 22 or newer and, on a Mac, the Xcode Command Line Tools (`xcode-select --install`).
+
+```bash
+git clone https://github.com/Orion-jada/RapidRAW.git
+cd RapidRAW
+npm install
+
+# Run it
+npm start
+
+# Or build the app; it ends up in src-tauri/target/release/bundle/
+npm run tauri build
+```
+
+### AI models
+
+Each AI tool downloads its model the first time you use it, then keeps it. The models added in this version come from this repository's [releases](https://github.com/Orion-jada/RapidRAW/releases):
+
+| Tool               | Model         | Download     |
+| ------------------ | ------------- | ------------ |
+| Subject mask       | SAM 2.1 Base+ | 172 MB       |
+| Foreground mask    | BiRefNet      | 507 MB       |
+| Sky mask           | SkyWater-Seg  | 50 MB        |
+| RAW denoise        | RawNIND       | 31 MB        |
+| 2× upscale         | RealPLKSR     | 32 MB        |
+| Search and culling | SigLIP 2      | about 500 MB |
+
+The other models (depth, tagging, inpainting, and denoise for non-RAW files) come from the original project. On a Mac, the first use of each model is slower while macOS prepares it for the GPU; after that it's cached. The SkyWater-Seg sky model is licensed for non-commercial use only.
+
+---
+
+## About RapidRAW
+
+_The rest of this page is the original RapidRAW README, written by its author, Timon Käch._
+
+[![www.getrapidraw.com](https://img.shields.io/badge/getrapidraw.com-%232ea44f?style=for-the-badge&logo=safari&logoColor=white)](https://www.getrapidraw.com)
+[![GitHub stars](https://img.shields.io/github/stars/CyberTimon/RapidRAW?style=for-the-badge&logo=github&label=Stars)](https://github.com/CyberTimon/RapidRAW/stargazers)
+[![Instagram](https://img.shields.io/badge/Instagram-%23E4405F.svg?style=for-the-badge&logo=Instagram&logoColor=white)](https://www.instagram.com/timonkaech.photography/)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/cvFugZ2Hw8)
+
+> A beautiful, non-destructive, and GPU-accelerated RAW image editor built with performance in mind.
+
+RapidRAW is a modern, high-performance alternative to Adobe Lightroom®. It delivers a simple, beautiful editing experience in a lightweight package (under 20MB) for Windows, macOS, Linux, and Android.
+
+I started developing this project as a personal challenge when I was 18. My goal was to create a high-performance tool for my own photography workflow while deepening my understanding of React, WGSL and Rust.
 
 <details>
 <summary><strong>For Who Is This?</strong></summary>
@@ -767,15 +854,7 @@ You have two options to run RapidRAW:
 
 **1. Download the Latest Release (Recommended)**
 
-**Windows & macOS:**
-
-- Grab the pre-built installer or application bundle for your operating system from the [**Releases**](https://github.com/CyberTimon/RapidRAW/releases) page.
-
-**Linux:**
-
-- The official Flatpak package supports all Linux distributions and is available on [**Flathub**](https://flathub.org/apps/io.github.CyberTimon.RapidRAW).
-- On Debian-based distributions, install the `.deb` package from the [**Releases**](https://github.com/CyberTimon/RapidRAW/releases) page.
-- On Arch-based distributions, use the [`rapidraw-bin`](https://aur.archlinux.org/packages/rapidraw-bin) package from the AUR.
+- For this version, see [**Download**](#download) at the top of this page. The official installers, the Flathub package and the AUR package install the original RapidRAW, without this fork's upgrades.
 
 **2. Build from Source**
 
@@ -783,7 +862,7 @@ If you want to build the project yourself, you'll need to have [Rust](https://ww
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/CyberTimon/RapidRAW.git
+git clone https://github.com/Orion-jada/RapidRAW.git
 cd RapidRAW
 
 # 2. Install frontend dependencies
@@ -918,7 +997,7 @@ sudo dnf install libgphoto2-devel pkgconf-pkg-config
 
 </details>
 
-After installing the system dependencies, download the corresponding `_tethering` build from the [Releases](https://github.com/CyberTimon/RapidRAW/releases) page, or run/build from source using the `tethering` feature flag.
+After installing the system dependencies, download the corresponding `_tethering` build from the original project's [Releases](https://github.com/CyberTimon/RapidRAW/releases) page, or run/build from source using the `tethering` feature flag. This fork has no tethering builds, so build it from source with the flag to get tethering together with this fork's upgrades.
 
 ## Command Line Interface (CLI)
 
