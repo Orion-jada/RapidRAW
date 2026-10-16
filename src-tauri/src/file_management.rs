@@ -31,7 +31,6 @@ use crate::PendingMetadata;
 use crate::android_integration::*;
 use crate::app_settings::*;
 use crate::as_shot::as_shot;
-use crate::baseline_exposure::BaselineOptions;
 use crate::exif_processing;
 use crate::formats::{is_raw_file, is_supported_image_file};
 use crate::gpu_processing;
@@ -40,8 +39,8 @@ use crate::image_processing::GpuContext;
 use crate::image_processing::{
     Crop, ImageFlag, ImageMetadata, apply_coarse_rotation, apply_cpu_default_raw_processing,
     apply_crop, apply_exposure, apply_flip, apply_geometry_warp, apply_rotation,
-    auto_results_to_json, default_adjustments, effective_baseline_exposure,
-    get_all_adjustments_from_json, perform_auto_analysis, resolve_render_options,
+    default_adjustments, effective_baseline_exposure, get_all_adjustments_from_json,
+    resolve_render_options,
 };
 use crate::mask_generation::MaskDefinition;
 use crate::preset_converter;
@@ -2899,15 +2898,19 @@ pub async fn apply_auto_adjustments_to_paths(
                     existing_metadata.adjustments = default_adjustments();
                 }
 
-                let auto_results = perform_auto_analysis(
-                    &image,
-                    effective_baseline_exposure(
-                        &existing_metadata.adjustments,
-                        as_shot(&source_path_str),
-                        BaselineOptions::from_settings(&settings),
-                    ),
-                );
-                let auto_adjustments_json = auto_results_to_json(&auto_results);
+                let context = gpu_context
+                    .as_ref()
+                    .ok_or("GPU is unavailable for auto adjustments")?;
+                let auto_adjustments_json = crate::auto_enhance::compute_auto_adjustments(
+                    context,
+                    &state,
+                    crate::auto_enhance::proxy_from_image(&image),
+                    &existing_metadata.adjustments,
+                    is_raw_file(&source_path_str),
+                    as_shot(&source_path_str),
+                    resolve_render_options(&settings, is_raw_file(&source_path_str)),
+                    crate::auto_enhance::proxy_cache_key(path),
+                )?;
 
                 let mut active_tools =
                     crate::image_processing::active_tools(&existing_metadata.adjustments);

@@ -31,6 +31,7 @@ mod app_settings;
 mod app_state;
 mod apple_raw;
 mod as_shot;
+mod auto_enhance;
 mod baseline_exposure;
 mod cache_utils;
 mod camera_tethering;

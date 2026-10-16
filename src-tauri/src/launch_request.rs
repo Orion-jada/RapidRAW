@@ -25,6 +25,8 @@ pub struct HeadlessExportSession {
     pub adjustments_override: Option<String>,
     /// AI 2x upscale strength in [0, 1], if requested.
     pub ai_upscale: Option<f32>,
+    /// Apply auto-enhance to each image before exporting it.
+    pub auto_enhance: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -72,6 +74,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
         let mut keep_metadata = false;
         let mut adjustments_override = None;
         let mut ai_upscale = None;
+        let mut auto_enhance = false;
 
         if let Some(src) = iter.next()
             && !src.starts_with('-')
@@ -117,6 +120,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
                     tiff_bit_depth = value;
                 }
                 "--keep-metadata" => keep_metadata = true,
+                "--auto" => auto_enhance = true,
                 "--ai-upscale" => {
                     let strength = iter.next().and_then(|v| v.parse::<f32>().ok());
                     match strength {
@@ -146,6 +150,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
             keep_metadata,
             adjustments_override,
             ai_upscale,
+            auto_enhance,
         });
     }
 

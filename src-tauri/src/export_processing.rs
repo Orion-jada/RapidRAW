@@ -161,6 +161,9 @@ pub struct ExportSettings {
     pub dpi: Option<u16>,
     #[serde(default)]
     pub ai_upscale: Option<AiUpscaleOptions>,
+    /// Run auto-enhance on each image before rendering it (headless `--auto`).
+    #[serde(default)]
+    pub auto_enhance: bool,
 }
 
 #[derive(Clone)]
@@ -1978,6 +1981,20 @@ pub(crate) async fn export_images_impl(
                     };
                     ensure_export_not_cancelled(&cancellation_token_clone)?;
 
+                    if export_settings.auto_enhance {
+                        let auto = crate::auto_enhance::compute_auto_adjustments(
+                            &context_clone,
+                            &state,
+                            crate::auto_enhance::proxy_from_image(&base_image),
+                            &js_adjustments,
+                            is_raw,
+                            as_shot(&source_path_str),
+                            resolve_render_options_from_handle(&app_handle_clone, is_raw),
+                            crate::auto_enhance::proxy_cache_key(&source_path_str),
+                        )?;
+                        crate::auto_enhance::merge_auto_adjustments(&mut js_adjustments, &auto);
+                    }
+
                     let mut main_export_adjustments = js_adjustments.clone();
                     if export_settings.export_masks
                         && let Some(obj) = main_export_adjustments.as_object_mut()
@@ -2214,6 +2231,7 @@ pub async fn run_headless_export(
         ai_upscale: session
             .ai_upscale
             .map(|strength| AiUpscaleOptions { strength }),
+        auto_enhance: session.auto_enhance,
     };
 
     let mut custom_adjustments = None;

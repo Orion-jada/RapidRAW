@@ -937,6 +937,9 @@ rapidraw export /path/to/photos --output /path/to/output_dir --adjustments /path
 
 # Export at twice the width and height with AI super-resolution (strength 0-100)
 rapidraw export /path/to/photo.raw --output /path/to/output.tiff --format tiff --ai-upscale 60
+
+# Auto-enhance every photo in a folder on top of its edits, then export
+rapidraw export /path/to/photos --output /path/to/output_dir --auto
 ```
 
 > **Note:** By default, headless export automatically detects and applies edits stored in `.rrdata` sidecar files located alongside your source images. You can override sidecars for all exported images by passing a custom JSON file using the `--adjustments` flag.
@@ -951,6 +954,7 @@ rapidraw export /path/to/photo.raw --output /path/to/output.tiff --format tiff -
 | `--keep-metadata`      | Retain EXIF/capture metadata in exported files                         | `false`           |
 | `--adjustments <path>` | Path to a custom JSON file containing adjustments to override sidecars | _(Auto-detected)_ |
 | `--ai-upscale <0-100>` | Upscale 2x with AI after edits and crop, at this strength              | _(Off)_           |
+| `--auto`               | Auto-enhance white balance, exposure and tone before exporting         | _(Off)_           |
 
 ## Companion Apps & Ecosystem
 
