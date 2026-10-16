@@ -1392,7 +1392,7 @@
       "downloadingText": "Descargando {{status}}...",
       "gpuWarningTooltip": "La reducción de ruido NIND aún no soporta aceleración por GPU debido a limitaciones de dependencias.",
       "initializing": "Inicializando...",
-      "methodAi": "NIND (IA - Mejor para RAW)",
+      "methodAi": "RawNIND (IA - Mejor para RAW)",
       "methodBm3d": "BM3D (Tradicional - Todos los formatos)",
       "methodLabel": "Método",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

@@ -1364,7 +1364,7 @@
       "downloadingText": "Downloading {{status}}...",
       "gpuWarningTooltip": "NIND Denoise does not yet support GPU acceleration due to dependency limitations.",
       "initializing": "Initializing...",
-      "methodAi": "NIND (AI - Best for RAW)",
+      "methodAi": "RawNIND (AI - Best for RAW)",
       "methodBm3d": "BM3D (Traditional - All formats)",
       "methodLabel": "Method",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

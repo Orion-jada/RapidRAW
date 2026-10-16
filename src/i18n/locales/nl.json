@@ -1341,7 +1341,7 @@
       "downloadingText": "Downloaden {{status}}...",
       "gpuWarningTooltip": "NIND Ruis verwijderen ondersteunt nog geen GPU-versnelling vanwege afhankelijkheidsbeperkingen.",
       "initializing": "Initialiseren...",
-      "methodAi": "NIND (AI - Beste voor RAW)",
+      "methodAi": "RawNIND (AI - Beste voor RAW)",
       "methodBm3d": "BM3D (Traditioneel - Alle formaten)",
       "methodLabel": "Methode",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

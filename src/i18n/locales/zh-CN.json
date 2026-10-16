@@ -1362,7 +1362,7 @@
       "downloadingText": "下载中 {{status}}...",
       "gpuWarningTooltip": "由于依赖项限制，NIND 降噪尚不支持 GPU 加速。",
       "initializing": "初始化中...",
-      "methodAi": "NIND（AI - 最适合 RAW）",
+      "methodAi": "RawNIND（AI - 最适合 RAW）",
       "methodBm3d": "BM3D（传统 - 所有格式）",
       "methodLabel": "方法",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

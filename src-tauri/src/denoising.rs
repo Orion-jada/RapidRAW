@@ -2,8 +2,8 @@ use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
-use crate::image_loader::load_base_image_from_bytes;
-use crate::image_processing::apply_cpu_default_raw_processing;
+use crate::image_loader::{load_base_image_from_bytes, raw_preprocessing_amounts};
+use crate::image_processing::{apply_cpu_default_raw_processing, remove_raw_artifacts_and_enhance};
 use base64::{Engine as _, engine::general_purpose};
 use image::{DynamicImage, GenericImageView, ImageFormat, Rgb, Rgb32FImage};
 use rayon::prelude::*;
@@ -61,12 +61,21 @@ pub async fn apply_denoising(
 
     let mut ai_session = None;
     if method == "ai" {
-        let session = crate::ai_processing::get_or_init_denoise_model(
-            &app_handle,
-            &state.ai_state,
-            &state.ai_init_lock,
-        )
-        .await
+        let session = if is_raw_file(&path_str) {
+            crate::ai_processing::get_or_init_raw_denoise_model(
+                &app_handle,
+                &state.ai_state,
+                &state.ai_init_lock,
+            )
+            .await
+        } else {
+            crate::ai_processing::get_or_init_denoise_model(
+                &app_handle,
+                &state.ai_state,
+                &state.ai_init_lock,
+            )
+            .await
+        }
         .map_err(|e| e.to_string())?;
         ai_session = Some(session);
     }
@@ -95,16 +104,30 @@ pub async fn batch_denoise_images(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let mut ai_session = None;
+    let is_raw_path = |p: &String| is_raw_file(parse_virtual_path(p).0);
+    let mut raw_session = None;
+    let mut rgb_session = None;
     if method == "ai" {
-        let session = crate::ai_processing::get_or_init_denoise_model(
-            &app_handle,
-            &state.ai_state,
-            &state.ai_init_lock,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        ai_session = Some(session);
+        if paths.iter().any(is_raw_path) {
+            let session = crate::ai_processing::get_or_init_raw_denoise_model(
+                &app_handle,
+                &state.ai_state,
+                &state.ai_init_lock,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            raw_session = Some(session);
+        }
+        if !paths.iter().all(is_raw_path) {
+            let session = crate::ai_processing::get_or_init_denoise_model(
+                &app_handle,
+                &state.ai_state,
+                &state.ai_init_lock,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            rgb_session = Some(session);
+        }
     }
 
     tokio::task::spawn_blocking(move || {
@@ -123,16 +146,20 @@ pub async fn batch_denoise_images(
             let (source_path, source_sidecar_path) =
                 crate::file_management::parse_virtual_path(path_str);
             let real_path = source_path.to_string_lossy().to_string();
+            let is_raw = crate::formats::is_raw_file(&real_path);
 
             match crate::denoising::denoise_image(
                 real_path.clone(),
                 intensity,
                 method.clone(),
                 app_handle.clone(),
-                ai_session.clone(),
+                if is_raw {
+                    raw_session.clone()
+                } else {
+                    rgb_session.clone()
+                },
             ) {
                 Ok((image, _)) => {
-                    let is_raw = crate::formats::is_raw_file(&real_path);
                     let parent_dir = source_path.parent().unwrap_or(std::path::Path::new(""));
                     let stem = source_path
                         .file_stem()
@@ -317,6 +344,14 @@ fn denoise_image(
     if method == "raw9" {
         original_settings.use_apple_raw9 = Some(false);
     }
+    let rawnind = method == "ai" && is_raw;
+    if rawnind {
+        // RawNIND is trained on noise straight out of demosaicing: skip Apple's develop and the
+        // raw pre-pass (chroma smoothing, sharpening). Sharpening is reapplied after denoising.
+        original_settings.use_apple_raw9 = Some(false);
+        original_settings.raw_preprocessing_color_nr = Some(0.0);
+        original_settings.raw_preprocessing_sharpening = Some(0.0);
+    }
 
     let dynamic_img =
         load_base_image_from_bytes(&file_bytes, &path_str, false, &original_settings, None)
@@ -326,13 +361,35 @@ fn denoise_image(
 
     let mut out_dynamic = if method == "ai" {
         let session_arc = ai_session.ok_or_else(|| "AI Session not provided".to_string())?;
-        crate::ai_processing::run_ai_denoise(
-            &rgb_img_for_denoiser,
-            intensity,
-            &session_arc,
-            &app_handle,
-        )
-        .map_err(|e| e.to_string())?
+        if rawnind {
+            let _ = app_handle.emit("denoise-progress", "Denoising (AI RawNIND)...");
+            let denoised = crate::ai_processing::run_rawnind_denoise(
+                &rgb_img_for_denoiser,
+                intensity,
+                &session_arc,
+                |done| {
+                    let _ = app_handle.emit(
+                        "denoise-progress",
+                        format!("Denoising… {:.0}%", done * 100.0),
+                    );
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            let mut out = DynamicImage::ImageRgb32F(denoised);
+            let (_, sharpening) = raw_preprocessing_amounts(&settings);
+            if sharpening > 0.0 {
+                remove_raw_artifacts_and_enhance(&mut out, 0.0, sharpening);
+            }
+            out
+        } else {
+            crate::ai_processing::run_ai_denoise(
+                &rgb_img_for_denoiser,
+                intensity,
+                &session_arc,
+                &app_handle,
+            )
+            .map_err(|e| e.to_string())?
+        }
     } else if method == "raw9" {
         if !is_raw {
             return Err("Apple RAW 9 denoising only works on RAW files.".to_string());
@@ -381,6 +438,13 @@ fn denoise_image(
     let data_url_denoised = format!("data:image/png;base64,{}", base64_str_denoised);
 
     let mut original_dynamic = DynamicImage::ImageRgb32F(rgb_img_for_denoiser);
+    if rawnind {
+        // Compare against the image as the editor shows it, with the raw pre-pass applied.
+        let (color_nr, sharpening) = raw_preprocessing_amounts(&settings);
+        if color_nr > 0.0 || sharpening > 0.0 {
+            remove_raw_artifacts_and_enhance(&mut original_dynamic, color_nr, sharpening);
+        }
+    }
 
     if is_raw {
         apply_cpu_default_raw_processing(&mut original_dynamic);

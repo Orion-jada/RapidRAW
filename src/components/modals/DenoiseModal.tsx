@@ -14,7 +14,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 
 export type DenoiseMethod = 'ai' | 'bm3d' | 'raw9';
 
-const defaultIntensityFor = (m: DenoiseMethod) => (m === 'bm3d' ? 15 : 50);
+const defaultIntensityFor = (m: DenoiseMethod) => (m === 'bm3d' ? 15 : m === 'ai' ? 100 : 50);
 
 interface DenoiseModalProps {
   isOpen: boolean;
@@ -429,9 +429,9 @@ export default function DenoiseModal({
 
   useEffect(() => {
     if (isOpen) {
-      const useAi = isRaw && !isAiFree;
-      setMethod(useAi ? 'ai' : 'bm3d');
-      setIntensity(useAi ? 50 : 15);
+      const initialMethod: DenoiseMethod = isRaw && !isAiFree ? 'ai' : 'bm3d';
+      setMethod(initialMethod);
+      setIntensity(defaultIntensityFor(initialMethod));
       setIsMounted(true);
       const timer = setTimeout(() => setShow(true), 10);
       return () => clearTimeout(timer);
@@ -647,7 +647,7 @@ export default function DenoiseModal({
           </div>
           <div className="flex-1 max-w-[280px]">
             <Slider
-              label={method === 'ai' ? t('modals.denoise.qualityTileSizeLabel') : t('modals.denoise.strengthLabel')}
+              label={t('modals.denoise.strengthLabel')}
               value={intensity}
               min={0}
               max={100}

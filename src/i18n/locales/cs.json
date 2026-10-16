@@ -1363,7 +1363,7 @@
       "downloadingText": "Stahování {{status}}...",
       "gpuWarningTooltip": "NIND Denoise zatím nepodporuje akceleraci GPU kvůli omezením závislosti.",
       "initializing": "Inicializace...",
-      "methodAi": "NIND (AI – nejlepší pro RAW)",
+      "methodAi": "RawNIND (AI – nejlepší pro RAW)",
       "methodBm3d": "BM3D (tradiční – všechny formáty)",
       "methodLabel": "Metoda",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

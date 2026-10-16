@@ -1364,7 +1364,7 @@
       "downloadingText": "Wird heruntergeladen {{status}}...",
       "gpuWarningTooltip": "NIND Entrauschen unterstützt noch keine GPU-Beschleunigung aufgrund von Abhängigkeiten.",
       "initializing": "Wird initialisiert...",
-      "methodAi": "NIND (KI - Am besten für RAW)",
+      "methodAi": "RawNIND (KI - Am besten für RAW)",
       "methodBm3d": "BM3D (Traditionell - Alle Formate)",
       "methodLabel": "Methode",
       "methodRaw9": "Apple RAW 9 (Neural Engine)",

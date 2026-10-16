@@ -55,6 +55,27 @@ const DENOISE_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/res
 const DENOISE_FILENAME: &str = "nind_denoise_utnet_684.onnx";
 const DENOISE_SHA256: &str = "ee3586279d514df557ff3f7dec6df37fafc51ba5d3a3435b2cc9ac2d9017e7fe";
 
+// RawNIND UtNet2, linear Rec.2020 variant (darktable-ai's ONNX export, fixed 512x512 input).
+// Denoises demosaiced raw data and outputs it at an arbitrary learned scale, so every tile is
+// gain-matched to its input. Tiles overlap by RAWNIND_OVERLAP and are feathered together.
+const RAWNIND_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/rawnind-v1/rawnind_utnet2_linear_512.onnx";
+const RAWNIND_FILENAME: &str = "rawnind_utnet2_linear_512.onnx";
+const RAWNIND_SHA256: &str = "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181";
+const RAWNIND_TILE: usize = 512;
+const RAWNIND_OVERLAP: usize = 128;
+const RAWNIND_BORDER: usize = 16;
+
+const REC709_TO_REC2020: [[f32; 3]; 3] = [
+    [0.627_404, 0.329_282, 0.043_313_6],
+    [0.069_097, 0.919_540, 0.011_361_2],
+    [0.016_391_6, 0.088_013_2, 0.895_595],
+];
+const REC2020_TO_REC709: [[f32; 3]; 3] = [
+    [1.660_490_3, -0.587_639_1, -0.072_851_6],
+    [-0.124_550, 1.132_899_9, -0.008_348],
+    [-0.018_151_1, -0.100_578_7, 1.118_73],
+];
+
 const LAMA_URL: &str =
     "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/lama_fp16.onnx?download=true";
 const LAMA_FILENAME: &str = "lama_fp16.onnx";
@@ -102,6 +123,7 @@ pub struct CachedDepthMap {
 pub struct AiState {
     pub models: Option<Arc<AiModels>>,
     pub denoise_model: Option<Arc<Mutex<Session>>>,
+    pub raw_denoise_model: Option<Arc<Mutex<Session>>>,
     pub foreground_model: Option<Arc<Mutex<Session>>>,
     pub clip_models: Option<Arc<ClipModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
@@ -624,6 +646,7 @@ pub async fn get_or_init_ai_models(
         *ai_state_lock = Some(AiState {
             models: Some(models.clone()),
             denoise_model: None,
+            raw_denoise_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: None,
@@ -690,6 +713,7 @@ pub async fn get_or_init_denoise_model(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: Some(denoise_model.clone()),
+            raw_denoise_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: None,
@@ -700,6 +724,73 @@ pub async fn get_or_init_denoise_model(
     }
 
     Ok(denoise_model)
+}
+
+pub async fn get_or_init_raw_denoise_model(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<Mutex<Session>>> {
+    if let Some(raw_denoise_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.raw_denoise_model.clone())
+    {
+        return Ok(raw_denoise_model);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(raw_denoise_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.raw_denoise_model.clone())
+    {
+        return Ok(raw_denoise_model);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        RAWNIND_FILENAME,
+        RAWNIND_URL,
+        RAWNIND_SHA256,
+        "RawNIND Denoise Model",
+    )
+    .await?;
+
+    let _ = ort::init().with_name("AI-Denoise").commit();
+    let model_path = models_dir.join(RAWNIND_FILENAME);
+    let session = build_session(
+        &model_path,
+        RAWNIND_SHA256,
+        Some(CoreMLComputeUnits::CPUAndGPU),
+    )?;
+    let raw_denoise_model = Arc::new(Mutex::new(session));
+
+    crate::register_exit_handler();
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.raw_denoise_model = Some(raw_denoise_model.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            raw_denoise_model: Some(raw_denoise_model.clone()),
+            foreground_model: None,
+            clip_models: None,
+            lama_model: None,
+            normal_model: None,
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(raw_denoise_model)
 }
 
 pub async fn get_or_init_foreground_model(
@@ -756,6 +847,7 @@ pub async fn get_or_init_foreground_model(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: None,
+            raw_denoise_model: None,
             foreground_model: Some(foreground_model.clone()),
             clip_models: None,
             lama_model: None,
@@ -830,6 +922,7 @@ pub async fn get_or_init_clip_models(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: None,
+            raw_denoise_model: None,
             foreground_model: None,
             clip_models: Some(clip_models.clone()),
             lama_model: None,
@@ -892,6 +985,7 @@ pub async fn get_or_init_lama_model(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: None,
+            raw_denoise_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: Some(lama_model.clone()),
@@ -954,6 +1048,7 @@ pub async fn get_or_init_normal_model(
         *ai_state_lock = Some(AiState {
             models: None,
             denoise_model: None,
+            raw_denoise_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: None,
@@ -985,20 +1080,7 @@ impl TileParams {
     }
 }
 
-const TILE_BALANCED: TileParams = TileParams::new(504, 480, 6);
-const TILE_FASTER: TileParams = TileParams::new(504, 504, 0);
 const TILE_HIGHER_QUALITY: TileParams = TileParams::new(504, 448, 12);
-
-fn select_tile_params(quality_0_1: f32) -> TileParams {
-    let q = quality_0_1.clamp(0.0, 1.0);
-    if q <= 0.25 {
-        TILE_FASTER
-    } else if q >= 0.75 {
-        TILE_HIGHER_QUALITY
-    } else {
-        TILE_BALANCED
-    }
-}
 
 #[inline]
 fn mirror_coord(c: i32, size: i32) -> i32 {
@@ -1194,7 +1276,6 @@ pub fn run_ai_denoise(
     app_handle: &tauri::AppHandle,
 ) -> Result<DynamicImage> {
     let (width, height) = rgb_img.dimensions();
-    let params = select_tile_params(intensity);
 
     let _ = app_handle.emit("denoise-progress", "Denoising (AI NIND)...");
     let mut accumulator = vec![0.0f32; width as usize * height as usize * 3];
@@ -1205,11 +1286,179 @@ pub fn run_ai_denoise(
         width as usize,
         height as usize,
         app_handle,
-        params,
+        TILE_HIGHER_QUALITY,
     )?;
 
-    let out_img_buffer = accumulator_to_rgb32f(&accumulator, width, height);
+    let mut out_img_buffer = accumulator_to_rgb32f(&accumulator, width, height);
+    let strength = intensity.clamp(0.0, 1.0);
+    if strength < 1.0 {
+        out_img_buffer
+            .par_iter_mut()
+            .zip(rgb_img.par_iter())
+            .for_each(|(d, &o)| *d = o + strength * (*d - o));
+    }
     Ok(DynamicImage::ImageRgb32F(out_img_buffer))
+}
+
+fn mat3_mul(m: &[[f32; 3]; 3], p: &[f32]) -> [f32; 3] {
+    [
+        m[0][0] * p[0] + m[0][1] * p[1] + m[0][2] * p[2],
+        m[1][0] * p[0] + m[1][1] * p[1] + m[1][2] * p[2],
+        m[2][0] * p[0] + m[2][1] * p[1] + m[2][2] * p[2],
+    ]
+}
+
+fn reflect_coord(c: isize, len: usize) -> usize {
+    if len == 1 {
+        return 0;
+    }
+    let period = 2 * (len as isize - 1);
+    let m = c.rem_euclid(period);
+    (if m < len as isize { m } else { period - m }) as usize
+}
+
+/// Tile origins along one axis, in image coordinates. The image is treated as mirror-padded by
+/// RAWNIND_OVERLAP on both sides so every real pixel lies where some tile has full weight.
+fn rawnind_tile_starts(len: usize) -> Vec<isize> {
+    let last = (len + 2 * RAWNIND_OVERLAP).saturating_sub(RAWNIND_TILE);
+    let mut starts = Vec::new();
+    let mut s = 0;
+    loop {
+        let c = s.min(last);
+        starts.push(c as isize - RAWNIND_OVERLAP as isize);
+        if c == last {
+            return starts;
+        }
+        s += RAWNIND_TILE - RAWNIND_OVERLAP;
+    }
+}
+
+/// Feathering weight across a tile: zero in the outer RAWNIND_BORDER pixels (CNN edge effects),
+/// then a linear ramp over the rest of the overlap, so adjacent tiles' weights sum to one.
+fn rawnind_tile_weight(u: usize) -> f32 {
+    let ramp = (RAWNIND_OVERLAP - 2 * RAWNIND_BORDER) as f32;
+    let u = u as f32 + 0.5;
+    let rise = (u - RAWNIND_BORDER as f32) / ramp;
+    let fall = ((RAWNIND_TILE - RAWNIND_BORDER) as f32 - u) / ramp;
+    rise.min(fall).clamp(0.0, 1.0)
+}
+
+/// RawNIND denoise of a demosaiced raw image: linear, Rec.709 primaries, white balanced, white
+/// level at 1.0. The model sees linear Rec.2020 clipped to [0, 1]; the noise it removes is added
+/// back onto the unclipped input, so highlight headroom above 1.0 is kept. `strength` scales that
+/// correction (0 = original, 1 = fully denoised). `progress` gets the fraction of tiles done.
+pub fn run_rawnind_denoise(
+    rgb_img: &Rgb32FImage,
+    strength: f32,
+    session: &Mutex<Session>,
+    progress: impl Fn(f32),
+) -> Result<Rgb32FImage> {
+    const T: usize = RAWNIND_TILE;
+    let (w, h) = (rgb_img.width() as usize, rgb_img.height() as usize);
+    let src = rgb_img.as_raw();
+    let xs = rawnind_tile_starts(w);
+    let ys = rawnind_tile_starts(h);
+    let weights: Vec<f32> = (0..T).map(rawnind_tile_weight).collect();
+
+    // Per-pixel sum of weighted (denoised - input) and of the weights.
+    let mut residual = vec![0.0f32; w * h * 3];
+    let mut weight_sum = vec![0.0f32; w * h];
+    let mut tile_in = vec![0.0f32; 3 * T * T];
+    let total = xs.len() * ys.len();
+
+    for (iy, &y0) in ys.iter().enumerate() {
+        for (ix, &x0) in xs.iter().enumerate() {
+            progress((iy * xs.len() + ix) as f32 / total as f32);
+
+            let (r, rest) = tile_in.split_at_mut(T * T);
+            let (g, b) = rest.split_at_mut(T * T);
+            r.par_chunks_mut(T)
+                .zip(g.par_chunks_mut(T))
+                .zip(b.par_chunks_mut(T))
+                .enumerate()
+                .for_each(|(dy, ((r, g), b))| {
+                    let sy = reflect_coord(y0 + dy as isize, h);
+                    let row = &src[sy * w * 3..(sy + 1) * w * 3];
+                    for dx in 0..T {
+                        let sx = reflect_coord(x0 + dx as isize, w);
+                        let p = mat3_mul(&REC709_TO_REC2020, &row[sx * 3..sx * 3 + 3]);
+                        r[dx] = p[0].clamp(0.0, 1.0);
+                        g[dx] = p[1].clamp(0.0, 1.0);
+                        b[dx] = p[2].clamp(0.0, 1.0);
+                    }
+                });
+            let in_mean = tile_in.iter().map(|&v| v as f64).sum::<f64>() / tile_in.len() as f64;
+
+            let input = Array4::from_shape_vec((1, 3, T, T), tile_in.clone())?;
+            let mut sess = session.lock().unwrap();
+            let outputs = sess.run(ort::inputs![Tensor::from_array(input)?])?;
+            let out = outputs[0].try_extract_array::<f32>()?;
+            let out = out
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("RawNIND output is not contiguous"))?;
+            let out_mean = out.iter().map(|&v| v as f64).sum::<f64>() / out.len() as f64;
+            // A black tile has nothing to denoise, and a near-zero output mean can't be matched.
+            let gain = if in_mean > 1e-6 && out_mean.abs() > 1e-12 {
+                (in_mean / out_mean) as f32
+            } else {
+                0.0
+            };
+
+            let y_lo = y0.max(0) as usize;
+            let y_hi = ((y0 + T as isize) as usize).min(h);
+            let x_lo = x0.max(0) as usize;
+            let x_hi = ((x0 + T as isize) as usize).min(w);
+            residual
+                .par_chunks_mut(w * 3)
+                .zip(weight_sum.par_chunks_mut(w))
+                .enumerate()
+                .skip(y_lo)
+                .take(y_hi - y_lo)
+                .for_each(|(y, (res_row, w_row))| {
+                    let dy = (y as isize - y0) as usize;
+                    for x in x_lo..x_hi {
+                        let dx = (x as isize - x0) as usize;
+                        let wgt = weights[dy] * weights[dx];
+                        if wgt == 0.0 {
+                            continue;
+                        }
+                        w_row[x] += wgt;
+                        if gain == 0.0 {
+                            continue;
+                        }
+                        let t = dy * T + dx;
+                        for c in 0..3 {
+                            let i = c * T * T + t;
+                            res_row[x * 3 + c] += wgt * (out[i] * gain - tile_in[i]);
+                        }
+                    }
+                });
+        }
+    }
+
+    let mut out_img = Rgb32FImage::new(w as u32, h as u32);
+    out_img
+        .par_chunks_mut(3)
+        .zip(src.par_chunks(3))
+        .zip(residual.par_chunks(3))
+        .zip(weight_sum.par_iter())
+        .for_each(|(((dst, p), res), &wsum)| {
+            if wsum <= 0.0 {
+                dst.copy_from_slice(p);
+                return;
+            }
+            let k = strength.clamp(0.0, 1.0) / wsum;
+            let mut q = mat3_mul(&REC709_TO_REC2020, p);
+            for c in 0..3 {
+                q[c] += k * res[c];
+            }
+            let back = mat3_mul(&REC2020_TO_REC709, &q);
+            for c in 0..3 {
+                dst[c] = back[c].max(0.0);
+            }
+        });
+    progress(1.0);
+    Ok(out_img)
 }
 
 pub fn run_lama_inpainting(

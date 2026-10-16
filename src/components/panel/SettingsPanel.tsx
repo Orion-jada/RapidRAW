@@ -1912,6 +1912,15 @@ export default function SettingsPanel({
                         >
                           nind-denoise
                         </a>
+                        {' / '}
+                        <a
+                          href="https://github.com/trougnouf/rawnind_jddc"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-accent hover:underline"
+                        >
+                          RawNIND
+                        </a>
                         : {t('settings.thanks.list.nind')}
                       </li>
                       <li>
