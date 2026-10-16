@@ -9,8 +9,8 @@ use crate::ai_connector;
 use crate::ai_processing::{
     AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters, CachedDepthMap, generate_image_embeddings, get_or_init_ai_models,
-    get_or_init_foreground_model, run_birefnet_model, run_depth_anything_model, run_sam_decoder,
-    run_sky_seg_model,
+    get_or_init_foreground_model, get_or_init_sky_model, run_birefnet_model,
+    run_depth_anything_model, run_sam_decoder, run_sky_seg_model,
 };
 use crate::app_settings::load_settings;
 use crate::app_state::{AiTaskGuard, AppState};
@@ -113,7 +113,7 @@ pub async fn generate_ai_sky_mask(
         return Err("Task cancelled".to_string());
     }
 
-    let models = get_or_init_ai_models(&app_handle, &state.ai_state, &state.ai_init_lock)
+    let model = get_or_init_sky_model(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -127,8 +127,12 @@ pub async fn generate_ai_sky_mask(
         return Err("Task cancelled".to_string());
     }
 
+    // Five model passes plus full-resolution edge refinement: keep it off the async runtime.
     let full_mask_image =
-        run_sky_seg_model(warped_image.as_ref(), &models.sky_seg).map_err(|e| e.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || run_sky_seg_model(&warped_image, &model))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
         return Err("Task cancelled".to_string());

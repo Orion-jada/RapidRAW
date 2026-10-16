@@ -1939,8 +1939,8 @@
         "rawler": "Voor de uitstekende Rust-crate die de basis vormt voor RAW-bestandsverwerking in dit project.",
         "realplksr": "Voor het superresolutiemodel achter AI-opschaling bij het exporteren.",
         "sam2": "Voor het leveren van het basismodel dat wordt gebruikt voor de AI-onderwerpdetectiemogelijkheden.",
+        "skywater": "Voor het luchtsegmentatiemodel achter de AI-luchtdetectie.",
         "spektrafilm": "Voor de spectraalgebaseerde filmemulatie-LUT's door Andrea Volpato, gebruikt voor de ingebouwde filmemulaties van RapidRAW. Gelicenseerd onder CC BY-SA 4.0.",
-        "u2net": "Voor het leveren van de robuuste architectuur die wordt gebruikt voor de AI-luchtdetectiemogelijkheden.",
         "you": "Voor het gebruiken en ondersteunen van RapidRAW. Uw interesse houdt dit project levend en evoluerend.",
         "youLabel": "U"
       },

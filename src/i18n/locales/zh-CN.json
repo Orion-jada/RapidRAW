@@ -1964,8 +1964,8 @@
         "rawler": "为优秀的 Rust 库提供支持，构成了本项目 RAW 文件处理的基础。",
         "realplksr": "感谢提供超分辨率模型，为导出时的 AI 放大提供支持。",
         "sam2": "为提供基础模型，用于 AI 主体检测功能。",
+        "skywater": "为提供天空分割模型，为 AI 天空检测功能提供支持。",
         "spektrafilm": "感谢 Andrea Volpato 提供基于光谱的胶片模拟 LUT，为 RapidRAW 的内置胶片模拟提供支持。采用 CC BY-SA 4.0 许可。",
-        "u2net": "为提供稳健的架构，用于 AI 天空检测功能。",
         "you": "感谢您使用和支持 RapidRAW。您的关注使本项目持续发展。",
         "youLabel": "您"
       },

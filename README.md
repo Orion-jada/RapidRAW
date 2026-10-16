@@ -693,7 +693,7 @@ I've designed RapidRAW's AI architecture with absolute flexibility, privacy, and
 
 These features are integrated directly into RapidRAW and run entirely on your local machine using your CPU or GPU. They are fast, completely private, free, and require zero setup:
 
-- **AI Masking:** Instantly detect and mask subjects, skies, foregrounds, and depth maps (powered by SAM 2, BiRefNet, U-2-Net, and Depth Anything V2).
+- **AI Masking:** Instantly detect and mask subjects, skies, foregrounds, and depth maps (powered by SAM 2, BiRefNet, SkyWater-Seg, and Depth Anything V2).
 - **Automatic Tagging:** The image library is automatically indexed with keywords using a local CLIP model for effortless search.
 - **Simple Generative Replace:** A lightweight, CPU-based inpainting tool (via LaMa) for removing sensor dust, blemishes, and small distractions.
 
@@ -1029,7 +1029,7 @@ A huge thank you to the following projects and tools that were very important in
 - **[lensfun](https://lensfun.github.io/):** For its invaluable open-source library and comprehensive database for automatic lens correction.
 - **[LaMa](https://github.com/advimman/lama):** For the powerful & simple image inpainting model, which enables content-aware fill and object removal.
 - **[SAM 2](https://github.com/facebookresearch/sam2):** For providing the foundation model used for the AI subject detection capabilities.
-- **[U-2-Net](https://github.com/xuebinqin/U-2-Net):** For providing the robust architecture used for the AI sky detection capabilities.
+- **[SkyWater-Seg](https://huggingface.co/Realcat/skywater_seg):** For the sky segmentation model that powers the AI sky detection capabilities.
 - **[BiRefNet](https://github.com/ZhengPeng7/BiRefNet):** For the high-accuracy segmentation model that powers the AI foreground detection capabilities.
 - **[Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2):** For the powerful monocular depth estimation model that enables the AI depth masking capabilities.
 - **[nind-denoise](https://github.com/trougnouf/nind-denoise) / [RawNIND](https://github.com/trougnouf/rawnind_jddc):** For providing AI models that power the AI noise reduction capabilities in RapidRAW (RawNIND for RAW files, via [darktable-ai](https://github.com/darktable-org/darktable-ai)'s ONNX export).

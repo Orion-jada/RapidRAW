@@ -1966,8 +1966,8 @@
         "rawler": "Für die hervorragende Rust-Crate zur RAW-Bildverarbeitung.",
         "realplksr": "Für das Super-Resolution-Modell hinter der KI-Hochskalierung beim Export.",
         "sam2": "Für das grundlegende Modell der KI-Motiverkennung.",
+        "skywater": "Für das Segmentierungsmodell hinter der KI-Himmelserkennung.",
         "spektrafilm": "Für die spektralbasierten Filmemulations-LUTs von Andrea Volpato, die RapidRAWs integrierte Filmemulationen ermöglichen. Lizenziert unter CC BY-SA 4.0.",
-        "u2net": "Für die Architektur zur Erkennung des Himmels.",
         "you": "Dafür, dass Sie RapidRAW nutzen. Ihr Interesse hält dieses Projekt am Leben.",
         "youLabel": "Ihnen"
       },

@@ -1872,14 +1872,14 @@ export default function SettingsPanel({
                       </li>
                       <li>
                         <a
-                          href="https://github.com/xuebinqin/U-2-Net"
+                          href="https://huggingface.co/Realcat/skywater_seg"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-semibold text-accent hover:underline"
                         >
-                          U-2-Net
+                          SkyWater-Seg
                         </a>
-                        : {t('settings.thanks.list.u2net')}
+                        : {t('settings.thanks.list.skywater')}
                       </li>
                       <li>
                         <a

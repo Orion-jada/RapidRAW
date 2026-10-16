@@ -38,11 +38,15 @@ const BIREFNET_FILENAME: &str = "birefnet_general_1024_coreml.onnx";
 const BIREFNET_INPUT_SIZE: u32 = 1024;
 const BIREFNET_SHA256: &str = "5b243f8c509c05374f0c42c692e9c2dbf4c58ad151fd6531b55bfa8b4f8618e9";
 
-const SKYSEG_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/skyseg-u2net.onnx?download=true";
-const SKYSEG_FILENAME: &str = "skyseg_u2net.onnx";
-const SKYSEG_LEGACY_FILENAME: &str = "skyseg-u2net.onnx";
-const SKYSEG_INPUT_SIZE: u32 = 320;
-const SKYSEG_SHA256: &str = "ab9c34c64c3d821220a2886a4a06da4642ffa14d5b30e8d5339056a089aa1d39";
+// SkyWater-Seg (SegFormer-B2): background/sky/water/person segmentation trained on photos, so
+// reflections in glass and bright windows stay out of the sky mask. Fixed to a 512x512 input so
+// CoreML runs the whole graph; weights are stored as float16 and cast back to float32 at load.
+const SKY_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/sky-v1/skywater_segformer_b2_512.onnx";
+const SKY_FILENAME: &str = "skywater_segformer_b2_512.onnx";
+const SKY_SHA256: &str = "4bfe7161e50516f84d7af32589b6d6b527dcd91ee0c892330388a268a9aeb26d";
+const SKY_INPUT_SIZE: u32 = 512;
+const SKY_NUM_CLASSES: usize = 4;
+const SKY_CLASS: usize = 1;
 
 const CLIP_MODEL_URL: &str =
     "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/clip_model.onnx?download=true";
@@ -105,7 +109,6 @@ const NORMAL_SHA256: &str = "24eacb5dc7a2c54c7bc98f7de085ffbed79ad006ea5b664c2c2
 pub struct AiModels {
     pub sam_encoder: Mutex<Session>,
     pub sam_decoder: Mutex<Session>,
-    pub sky_seg: Mutex<Session>,
     pub depth_anything: Mutex<Session>,
 }
 
@@ -136,6 +139,7 @@ pub struct AiState {
     pub raw_denoise_model: Option<Arc<Mutex<Session>>>,
     pub upscale_model: Option<Arc<Mutex<Session>>>,
     pub foreground_model: Option<Arc<Mutex<Session>>>,
+    pub sky_model: Option<Arc<Mutex<Session>>>,
     pub clip_models: Option<Arc<ClipModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
     pub normal_model: Option<Arc<Mutex<Session>>>,
@@ -488,32 +492,6 @@ fn verify_sha256(path: &Path, expected_hash: &str) -> Result<bool> {
     Ok(hex_hash == expected_hash)
 }
 
-fn promote_legacy_model_filename(
-    models_dir: &Path,
-    expected_filename: &str,
-    legacy_filename: &str,
-    expected_hash: &str,
-) -> Result<()> {
-    let expected_path = models_dir.join(expected_filename);
-    if expected_path.exists() {
-        return Ok(());
-    }
-
-    let legacy_path = models_dir.join(legacy_filename);
-    if !legacy_path.exists() || !verify_sha256(&legacy_path, expected_hash)? {
-        return Ok(());
-    }
-
-    fs::rename(&legacy_path, &expected_path).or_else(|rename_error| -> std::io::Result<()> {
-        if expected_path.exists() {
-            Ok(())
-        } else {
-            Err(rename_error)
-        }
-    })?;
-    Ok(())
-}
-
 async fn download_and_verify_model(
     app_handle: &tauri::AppHandle,
     models_dir: &Path,
@@ -523,14 +501,6 @@ async fn download_and_verify_model(
     model_name: &str,
 ) -> Result<()> {
     let dest_path = models_dir.join(filename);
-    if filename == SKYSEG_FILENAME {
-        promote_legacy_model_filename(
-            models_dir,
-            SKYSEG_FILENAME,
-            SKYSEG_LEGACY_FILENAME,
-            SKYSEG_SHA256,
-        )?;
-    }
     let is_valid = verify_sha256(&dest_path, expected_hash)?;
 
     if !is_valid {
@@ -601,15 +571,6 @@ pub async fn get_or_init_ai_models(
     download_and_verify_model(
         app_handle,
         &models_dir,
-        SKYSEG_FILENAME,
-        SKYSEG_URL,
-        SKYSEG_SHA256,
-        "Sky Model",
-    )
-    .await?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
         DEPTH_FILENAME,
         DEPTH_URL,
         DEPTH_SHA256,
@@ -621,7 +582,6 @@ pub async fn get_or_init_ai_models(
 
     let encoder_path = models_dir.join(ENCODER_FILENAME);
     let decoder_path = models_dir.join(DECODER_FILENAME);
-    let sky_seg_path = models_dir.join(SKYSEG_FILENAME);
     let depth_path = models_dir.join(DEPTH_FILENAME);
 
     let sam_encoder = build_session(
@@ -630,11 +590,6 @@ pub async fn get_or_init_ai_models(
         Some(CoreMLComputeUnits::CPUAndGPU),
     )?;
     let sam_decoder = build_session(&decoder_path, DECODER_SHA256, None)?;
-    let sky_seg = build_session(
-        &sky_seg_path,
-        SKYSEG_SHA256,
-        Some(CoreMLComputeUnits::CPUAndNeuralEngine),
-    )?;
     let depth_anything = build_session(
         &depth_path,
         DEPTH_SHA256,
@@ -646,7 +601,6 @@ pub async fn get_or_init_ai_models(
     let models = Arc::new(AiModels {
         sam_encoder: Mutex::new(sam_encoder),
         sam_decoder: Mutex::new(sam_decoder),
-        sky_seg: Mutex::new(sky_seg),
         depth_anything: Mutex::new(depth_anything),
     });
 
@@ -660,6 +614,7 @@ pub async fn get_or_init_ai_models(
             raw_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
+            sky_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: None,
@@ -728,6 +683,7 @@ pub async fn get_or_init_denoise_model(
             raw_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
+            sky_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: None,
@@ -796,6 +752,7 @@ pub async fn get_or_init_raw_denoise_model(
             raw_denoise_model: Some(raw_denoise_model.clone()),
             upscale_model: None,
             foreground_model: None,
+            sky_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: None,
@@ -864,6 +821,7 @@ pub async fn get_or_init_upscale_model(
             raw_denoise_model: None,
             upscale_model: Some(upscale_model.clone()),
             foreground_model: None,
+            sky_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: None,
@@ -932,6 +890,7 @@ pub async fn get_or_init_foreground_model(
             raw_denoise_model: None,
             upscale_model: None,
             foreground_model: Some(foreground_model.clone()),
+            sky_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: None,
@@ -941,6 +900,71 @@ pub async fn get_or_init_foreground_model(
     }
 
     Ok(foreground_model)
+}
+
+pub async fn get_or_init_sky_model(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<Mutex<Session>>> {
+    if let Some(sky_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.sky_model.clone())
+    {
+        return Ok(sky_model);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(sky_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.sky_model.clone())
+    {
+        return Ok(sky_model);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        SKY_FILENAME,
+        SKY_URL,
+        SKY_SHA256,
+        "Sky Model",
+    )
+    .await?;
+
+    let _ = ort::init().with_name("AI-Sky").commit();
+    let model_path = models_dir.join(SKY_FILENAME);
+    let session = build_session(&model_path, SKY_SHA256, Some(CoreMLComputeUnits::CPUAndGPU))?;
+    let sky_model = Arc::new(Mutex::new(session));
+
+    crate::register_exit_handler();
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.sky_model = Some(sky_model.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            raw_denoise_model: None,
+            upscale_model: None,
+            foreground_model: None,
+            sky_model: Some(sky_model.clone()),
+            clip_models: None,
+            lama_model: None,
+            normal_model: None,
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(sky_model)
 }
 
 pub async fn get_or_init_clip_models(
@@ -1008,6 +1032,7 @@ pub async fn get_or_init_clip_models(
             raw_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
+            sky_model: None,
             clip_models: Some(clip_models.clone()),
             lama_model: None,
             normal_model: None,
@@ -1072,6 +1097,7 @@ pub async fn get_or_init_lama_model(
             raw_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
+            sky_model: None,
             clip_models: None,
             lama_model: Some(lama_model.clone()),
             normal_model: None,
@@ -1136,6 +1162,7 @@ pub async fn get_or_init_normal_model(
             raw_denoise_model: None,
             upscale_model: None,
             foreground_model: None,
+            sky_model: None,
             clip_models: None,
             lama_model: None,
             normal_model: Some(normal_model.clone()),
@@ -2105,85 +2132,276 @@ pub fn run_sam_decoder(
     }
 }
 
-pub fn run_sky_seg_model(
-    image: &DynamicImage,
-    sky_seg_session: &Mutex<Session>,
-) -> Result<GrayImage> {
-    let (orig_width, orig_height) = image.dimensions();
+/// Sky mask from SkyWater-Seg. The model sees the whole frame stretched to its square input, and
+/// a 2x2 grid of overlapping tiles from a copy about 1.6x that size, which recovers small patches
+/// of sky (under arms, between branches) the whole-frame pass misses. The averaged probabilities
+/// are then fitted to the photo's edges with two colour guided filters: a coarse one that turns
+/// the model's blurry boundary into a clean edge, and a finer one whose coefficients are applied
+/// to the full-resolution image to recover detail like antennas and spikes.
+pub fn run_sky_seg_model(image: &DynamicImage, sky_session: &Mutex<Session>) -> Result<GrayImage> {
+    let (width, height) = image.dimensions();
+    let rgb = image.to_rgb8();
+    let size = SKY_INPUT_SIZE as usize;
 
-    let resized_image = image.resize(SKYSEG_INPUT_SIZE, SKYSEG_INPUT_SIZE, FilterType::Triangle);
-    let (resized_w, resized_h) = resized_image.dimensions();
-    let resized_rgb = resized_image.into_rgb8();
-    let raw_pixels = resized_rgb.as_raw();
+    let global = sky_probabilities(
+        sky_session,
+        imagenet_tensor(&imageops::thumbnail(&rgb, SKY_INPUT_SIZE, SKY_INPUT_SIZE)),
+    )?;
 
-    let paste_x = ((SKYSEG_INPUT_SIZE - resized_w) / 2) as usize;
-    let paste_y = ((SKYSEG_INPUT_SIZE - resized_h) / 2) as usize;
-
-    let mut input_tensor: Array<f32, _> =
-        Array::zeros((1, 3, SKYSEG_INPUT_SIZE as usize, SKYSEG_INPUT_SIZE as usize));
-
-    let mean = [0.485, 0.456, 0.406];
-    let std = [0.229, 0.224, 0.225];
-
-    let rw = resized_w as usize;
-    let rh = resized_h as usize;
-
-    for y in 0..rh {
-        for x in 0..rw {
-            let idx = (y * rw + x) * 3;
-            let dest_y = y + paste_y;
-            let dest_x = x + paste_x;
-
-            input_tensor[[0, 0, dest_y, dest_x]] =
-                (raw_pixels[idx] as f32 / 255.0 - mean[0]) / std[0];
-            input_tensor[[0, 1, dest_y, dest_x]] =
-                (raw_pixels[idx + 1] as f32 / 255.0 - mean[1]) / std[1];
-            input_tensor[[0, 2, dest_y, dest_x]] =
-                (raw_pixels[idx + 2] as f32 / 255.0 - mean[2]) / std[2];
+    let scale = 1.6 * SKY_INPUT_SIZE as f32 / width.max(height) as f32;
+    let tiled_w = ((width as f32 * scale).round() as u32).max(SKY_INPUT_SIZE);
+    let tiled_h = ((height as f32 * scale).round() as u32).max(SKY_INPUT_SIZE);
+    let tiled_image = imageops::thumbnail(&rgb, tiled_w, tiled_h);
+    let (tw, th) = (tiled_w as usize, tiled_h as usize);
+    let mut tiled = vec![0.0f32; tw * th];
+    let mut counts = vec![0u8; tw * th];
+    let starts = |len: usize| {
+        if len > size {
+            vec![0, len - size]
+        } else {
+            vec![0]
+        }
+    };
+    for &y0 in &starts(th) {
+        for &x0 in &starts(tw) {
+            let tile = imageops::crop_imm(
+                &tiled_image,
+                x0 as u32,
+                y0 as u32,
+                SKY_INPUT_SIZE,
+                SKY_INPUT_SIZE,
+            )
+            .to_image();
+            let probabilities = sky_probabilities(sky_session, imagenet_tensor(&tile))?;
+            for (y, row) in probabilities.chunks_exact(size).enumerate() {
+                let offset = (y0 + y) * tw + x0;
+                for (x, &v) in row.iter().enumerate() {
+                    tiled[offset + x] += v;
+                    counts[offset + x] += 1;
+                }
+            }
         }
     }
-
-    let input_tensor_dyn = input_tensor.into_dyn();
-    let t_input = Tensor::from_array(input_tensor_dyn.as_standard_layout().into_owned())?;
-
-    let mut session = sky_seg_session.lock().unwrap();
-    let outputs = session.run(ort::inputs![t_input])?;
-    let output_tensor = outputs[0].try_extract_array::<f32>()?.to_owned();
-    let out_slice = output_tensor.as_slice().unwrap();
-
-    let mut min_val = f32::MAX;
-    let mut max_val = f32::MIN;
-    for &v in out_slice {
-        min_val = min_val.min(v);
-        max_val = max_val.max(v);
+    for (v, &n) in tiled.iter_mut().zip(&counts) {
+        *v /= n.max(1) as f32;
     }
 
-    let range = max_val - min_val;
-    let scale = if range > 1e-6 { 255.0 / range } else { 0.0 };
+    // Coarse pass at ~768px: average the two predictions and stretch them so faint detections
+    // (below 0.1) drop out and confident ones (above 0.6) count as full sky.
+    let (w1, h1) = fit_long_edge(width, height, 768);
+    let global_1 = resample_grid(&global, size, size, w1, h1);
+    let tiled_1 = resample_grid(&tiled, tw, th, w1, h1);
+    let fused: Vec<f32> = global_1
+        .iter()
+        .zip(&tiled_1)
+        .map(|(&g, &t)| ((0.5 * (g + t) - 0.1) / 0.5).clamp(0.0, 1.0))
+        .collect();
+    let guide_1 = rgb_planes(&imageops::thumbnail(&rgb, w1 as u32, h1 as u32));
+    let (a, b) = guided_filter_rgb(&guide_1, &fused, w1, h1, 6, 1e-3);
+    let coarse: Vec<f32> = (0..w1 * h1)
+        .into_par_iter()
+        .map(|i| {
+            let q =
+                a[0][i] * guide_1[0][i] + a[1][i] * guide_1[1][i] + a[2][i] * guide_1[2][i] + b[i];
+            let t = ((q - 0.2) / 0.6).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        })
+        .collect();
 
-    let usize_size = SKYSEG_INPUT_SIZE as usize;
-    let mut cropped_mask_data = Vec::with_capacity(rw * rh);
+    // Fine pass at ~1536px, with its linear model applied to the full-resolution pixels.
+    let (w2, h2) = fit_long_edge(width, height, 1536);
+    let guide_2 = rgb_planes(&imageops::thumbnail(&rgb, w2 as u32, h2 as u32));
+    let coarse_2 = resample_grid(&coarse, w1, h1, w2, h2);
+    let (a, b) = guided_filter_rgb(&guide_2, &coarse_2, w2, h2, 3, 4e-3);
+    Ok(apply_guided_coefficients(&rgb, &a, &b, w2, h2))
+}
 
-    for y in 0..rh {
-        let src_y = y + paste_y;
-        for x in 0..rw {
-            let src_x = x + paste_x;
-            let val = out_slice[src_y * usize_size + src_x];
-            let pixel = if range > 1e-6 {
-                ((val - min_val) * scale) as u8
-            } else {
-                0
-            };
-            cropped_mask_data.push(pixel);
+/// Runs SkyWater-Seg on one normalised 512x512 tensor and returns the per-pixel sky probability
+/// (softmax over the four classes).
+fn sky_probabilities(sky_session: &Mutex<Session>, input: Array4<f32>) -> Result<Vec<f32>> {
+    let size = SKY_INPUT_SIZE as usize;
+    let plane = size * size;
+    let logits: Vec<f32> = {
+        let mut session = sky_session.lock().unwrap();
+        let outputs = session.run(ort::inputs![Tensor::from_array(input.into_dyn())?])?;
+        outputs[0]
+            .try_extract_array::<f32>()?
+            .iter()
+            .copied()
+            .collect()
+    };
+    if logits.len() != SKY_NUM_CLASSES * plane {
+        return Err(anyhow::anyhow!("Unexpected sky model output size"));
+    }
+    Ok((0..plane)
+        .into_par_iter()
+        .map(|i| {
+            let max = (0..SKY_NUM_CLASSES)
+                .map(|c| logits[c * plane + i])
+                .fold(f32::MIN, f32::max);
+            let sum: f32 = (0..SKY_NUM_CLASSES)
+                .map(|c| (logits[c * plane + i] - max).exp())
+                .sum();
+            (logits[SKY_CLASS * plane + i] - max).exp() / sum
+        })
+        .collect())
+}
+
+/// Scales `width` x `height` down so its long edge is at most `long_edge`.
+fn fit_long_edge(width: u32, height: u32, long_edge: u32) -> (usize, usize) {
+    let scale = (long_edge as f32 / width.max(height) as f32).min(1.0);
+    (
+        ((width as f32 * scale).round() as usize).max(1),
+        ((height as f32 * scale).round() as usize).max(1),
+    )
+}
+
+/// Bilinear resize of a float grid (pixel centres aligned, edges clamped).
+fn resample_grid(src: &[f32], src_w: usize, src_h: usize, w: usize, h: usize) -> Vec<f32> {
+    let cols: Vec<(usize, usize, f32)> = (0..w).map(|x| bilinear_tap(x, w, src_w)).collect();
+    let mut out = vec![0.0f32; w * h];
+    out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+        let (y0, y1, wy) = bilinear_tap(y, h, src_h);
+        let r0 = &src[y0 * src_w..(y0 + 1) * src_w];
+        let r1 = &src[y1 * src_w..(y1 + 1) * src_w];
+        for (o, &(x0, x1, wx)) in row.iter_mut().zip(&cols) {
+            let top = r0[x0] + (r0[x1] - r0[x0]) * wx;
+            let bottom = r1[x0] + (r1[x1] - r1[x0]) * wx;
+            *o = top + (bottom - top) * wy;
         }
+    });
+    out
+}
+
+/// Source indices and weight for sampling output pixel `dst` of `dst_len` from `src_len` pixels.
+fn bilinear_tap(dst: usize, dst_len: usize, src_len: usize) -> (usize, usize, f32) {
+    let f = ((dst as f32 + 0.5) * src_len as f32 / dst_len as f32 - 0.5)
+        .clamp(0.0, (src_len - 1) as f32);
+    let i0 = f as usize;
+    (i0, (i0 + 1).min(src_len - 1), f - i0 as f32)
+}
+
+fn rgb_planes(image: &image::RgbImage) -> [Vec<f32>; 3] {
+    std::array::from_fn(|c| {
+        image
+            .as_raw()
+            .par_chunks_exact(3)
+            .map(|px| px[c] as f32 / 255.0)
+            .collect()
+    })
+}
+
+fn box_mean(src: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+    let mut dest = vec![0.0; w * h];
+    let mut temp1 = vec![0.0; w * h];
+    let mut temp2 = vec![0.0; w * h];
+    box_filter_opt(src, &mut dest, &mut temp1, &mut temp2, w, h, r);
+    dest
+}
+
+/// Colour guided filter (He et al.): fits `q = a . I + b` to `p` in every (2r+1)^2 window of the
+/// RGB guide `guide`, and returns the window-averaged coefficients `a` (per channel) and `b`.
+fn guided_filter_rgb(
+    guide: &[Vec<f32>; 3],
+    p: &[f32],
+    w: usize,
+    h: usize,
+    r: usize,
+    eps: f32,
+) -> ([Vec<f32>; 3], Vec<f32>) {
+    let product =
+        |x: &[f32], y: &[f32]| -> Vec<f32> { x.par_iter().zip(y).map(|(a, b)| a * b).collect() };
+    let mean_i: [Vec<f32>; 3] = std::array::from_fn(|c| box_mean(&guide[c], w, h, r));
+    let mean_p = box_mean(p, w, h, r);
+    let mean_ip: [Vec<f32>; 3] = std::array::from_fn(|c| box_mean(&product(&guide[c], p), w, h, r));
+    // Upper triangle of the guide's covariance: rr, rg, rb, gg, gb, bb.
+    const PAIRS: [(usize, usize); 6] = [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)];
+    let mean_ii: Vec<Vec<f32>> = PAIRS
+        .iter()
+        .map(|&(i, j)| box_mean(&product(&guide[i], &guide[j]), w, h, r))
+        .collect();
+
+    let coefficients: Vec<[f32; 4]> = (0..w * h)
+        .into_par_iter()
+        .map(|k| {
+            let mi = [mean_i[0][k], mean_i[1][k], mean_i[2][k]];
+            let mp = mean_p[k];
+            let cov: [f32; 3] = std::array::from_fn(|c| mean_ip[c][k] - mi[c] * mp);
+            let s: [f32; 6] = std::array::from_fn(|n| {
+                let (i, j) = PAIRS[n];
+                mean_ii[n][k] - mi[i] * mi[j] + if i == j { eps } else { 0.0 }
+            });
+            let a = solve_symmetric_3x3(s, cov);
+            [
+                a[0],
+                a[1],
+                a[2],
+                mp - a[0] * mi[0] - a[1] * mi[1] - a[2] * mi[2],
+            ]
+        })
+        .collect();
+
+    let a = std::array::from_fn(|c| {
+        let plane: Vec<f32> = coefficients.par_iter().map(|v| v[c]).collect();
+        box_mean(&plane, w, h, r)
+    });
+    let b: Vec<f32> = coefficients.par_iter().map(|v| v[3]).collect();
+    (a, box_mean(&b, w, h, r))
+}
+
+/// Solves `S x = v` for a symmetric 3x3 `S` given as its upper triangle (xx, xy, xz, yy, yz, zz).
+fn solve_symmetric_3x3(s: [f32; 6], v: [f32; 3]) -> [f32; 3] {
+    let [a, b, c, d, e, f] = s;
+    let c00 = d * f - e * e;
+    let c01 = c * e - b * f;
+    let c02 = b * e - c * d;
+    let c11 = a * f - c * c;
+    let c12 = b * c - a * e;
+    let c22 = a * d - b * b;
+    let det = a * c00 + b * c01 + c * c02;
+    if det.abs() < 1e-20 {
+        return [0.0; 3];
     }
+    [
+        (c00 * v[0] + c01 * v[1] + c02 * v[2]) / det,
+        (c01 * v[0] + c11 * v[1] + c12 * v[2]) / det,
+        (c02 * v[0] + c12 * v[1] + c22 * v[2]) / det,
+    ]
+}
 
-    let cropped_mask = GrayImage::from_raw(resized_w, resized_h, cropped_mask_data)
-        .ok_or_else(|| anyhow::anyhow!("Failed to create mask from Sky Segmentation output"))?;
-
-    let final_mask = imageops::resize(&cropped_mask, orig_width, orig_height, FilterType::Triangle);
-
-    Ok(final_mask)
+/// Evaluates a guided filter's `q = a . I + b` at full resolution, bilinearly upsampling the
+/// low-resolution coefficients (the "fast guided filter").
+fn apply_guided_coefficients(
+    image: &image::RgbImage,
+    a: &[Vec<f32>; 3],
+    b: &[f32],
+    grid_w: usize,
+    grid_h: usize,
+) -> GrayImage {
+    let (width, height) = image.dimensions();
+    let (w, h) = (width as usize, height as usize);
+    let cols: Vec<(usize, usize, f32)> = (0..w).map(|x| bilinear_tap(x, w, grid_w)).collect();
+    let pixels = image.as_raw();
+    let mut out = vec![0u8; w * h];
+    out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+        let (y0, y1, wy) = bilinear_tap(y, h, grid_h);
+        let sample = |grid: &[f32], x0: usize, x1: usize, wx: f32| {
+            let r0 = &grid[y0 * grid_w..(y0 + 1) * grid_w];
+            let r1 = &grid[y1 * grid_w..(y1 + 1) * grid_w];
+            let top = r0[x0] + (r0[x1] - r0[x0]) * wx;
+            let bottom = r1[x0] + (r1[x1] - r1[x0]) * wx;
+            top + (bottom - top) * wy
+        };
+        let src = &pixels[y * w * 3..(y + 1) * w * 3];
+        for (x, (o, &(x0, x1, wx))) in row.iter_mut().zip(&cols).enumerate() {
+            let mut q = sample(b, x0, x1, wx);
+            for c in 0..3 {
+                q += sample(&a[c], x0, x1, wx) * (src[x * 3 + c] as f32 / 255.0);
+            }
+            *o = (q.clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+    });
+    GrayImage::from_raw(width, height, out).expect("buffer matches dimensions")
 }
 
 /// Foreground mask from BiRefNet. The model expects a plain (stretched) resize to its square
@@ -2225,11 +2443,16 @@ pub fn run_birefnet_model(
 /// the input BiRefNet and SAM 2 both expect.
 fn imagenet_square_tensor(image: &DynamicImage, size: u32) -> Array4<f32> {
     // Area-average downscale. Convert to 8-bit first: image's thumbnail mis-scales f32 pixels.
-    let rgb = imageops::thumbnail(&image.to_rgb8(), size, size);
+    imagenet_tensor(&imageops::thumbnail(&image.to_rgb8(), size, size))
+}
+
+/// Normalises an RGB image with the ImageNet mean/std into a 1x3xHxW tensor.
+fn imagenet_tensor(rgb: &image::RgbImage) -> Array4<f32> {
     let mean = [0.485, 0.456, 0.406];
     let std = [0.229, 0.224, 0.225];
 
-    let mut tensor = Array4::zeros((1, 3, size as usize, size as usize));
+    let (width, height) = rgb.dimensions();
+    let mut tensor = Array4::zeros((1, 3, height as usize, width as usize));
     for (x, y, pixel) in rgb.enumerate_pixels() {
         for c in 0..3 {
             tensor[[0, c, y as usize, x as usize]] = (pixel[c] as f32 / 255.0 - mean[c]) / std[c];
@@ -2250,19 +2473,13 @@ fn upscale_grid(
     to_pixel: impl Fn(f32) -> u8 + Sync,
 ) -> GrayImage {
     let (w, h) = (width as usize, height as usize);
-    let sample = |dst: usize, dst_len: usize, src_len: usize| {
-        let f = ((dst as f32 + 0.5) * src_len as f32 / dst_len as f32 - 0.5)
-            .clamp(0.0, (src_len - 1) as f32);
-        let i0 = f as usize;
-        (i0, (i0 + 1).min(src_len - 1), f - i0 as f32)
-    };
-    let cols: Vec<(usize, usize, f32)> = (0..w).map(|x| sample(x, w, src_w)).collect();
+    let cols: Vec<(usize, usize, f32)> = (0..w).map(|x| bilinear_tap(x, w, src_w)).collect();
 
     let mut out = vec![0u8; w * h];
     out.par_chunks_mut(w.max(1))
         .enumerate()
         .for_each(|(y, row)| {
-            let (y0, y1, wy) = sample(y, h, src_h);
+            let (y0, y1, wy) = bilinear_tap(y, h, src_h);
             let r0 = &src[y0 * src_w..(y0 + 1) * src_w];
             let r1 = &src[y1 * src_w..(y1 + 1) * src_w];
             for (o, &(x0, x1, wx)) in row.iter_mut().zip(&cols) {

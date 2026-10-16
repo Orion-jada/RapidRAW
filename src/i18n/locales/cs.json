@@ -1965,8 +1965,8 @@
         "rawler": "Za vynikající přepravku Rust, která poskytuje základ pro zpracování souborů RAW v tomto projektu.",
         "realplksr": "Za model superrozlišení, který pohání AI zvětšení při exportu.",
         "sam2": "Za poskytnutí základního modelu používaného pro schopnosti detekce předmětů AI.",
+        "skywater": "Za model segmentace oblohy, který pohání detekci oblohy pomocí AI.",
         "spektrafilm": "Pro spektrálně založené filmové emulační LUT od Andrey Volpata, použité pro vestavěné filmové emulace v RapidRAW. Licence CC BY-SA 4.0.",
-        "u2net": "Pro zajištění robustní architektury používané pro schopnosti detekce oblohy AI.",
         "you": "Za používání a podporu RapidRAW. Váš zájem udržuje tento projekt živý a rozvíjející se.",
         "youLabel": "Vy"
       },

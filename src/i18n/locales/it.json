@@ -2004,8 +2004,8 @@
         "rawler": "Per l'eccellente crate Rust che fornisce le basi per l'elaborazione dei file RAW in questo progetto.",
         "realplksr": "Per il modello di super-risoluzione che alimenta l'ingrandimento IA in esportazione.",
         "sam2": "Per aver fornito il modello fondamentale usato per le funzionalità di rilevamento del soggetto tramite AI.",
+        "skywater": "Per il modello di segmentazione del cielo che alimenta il rilevamento AI del cielo.",
         "spektrafilm": "Per le LUT di emulazione pellicola su base spettrale di Andrea Volpato, che alimentano le emulazioni integrate di RapidRAW. Concesse in licenza CC BY-SA 4.0.",
-        "u2net": "Per aver fornito la robusta architettura usata per le funzionalità di rilevamento AI del cielo.",
         "you": "Per utilizzare e supportare RapidRAW. Il tuo interesse mantiene questo progetto vivo e in evoluzione.",
         "youLabel": "Te"
       },

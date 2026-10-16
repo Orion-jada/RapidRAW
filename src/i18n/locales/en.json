@@ -1966,8 +1966,8 @@
         "rawler": "For the excellent Rust crate that provides the foundation for RAW file processing in this project.",
         "realplksr": "For the super-resolution model that powers AI upscaling on export.",
         "sam2": "For providing the foundation model used for the AI subject detection capabilities.",
+        "skywater": "For the sky segmentation model that powers the AI sky detection capabilities.",
         "spektrafilm": "For the spectrally-based film emulation LUTs by Andrea Volpato, used to power RapidRAW's built-in film emulations. Licensed CC BY-SA 4.0.",
-        "u2net": "For providing the robust architecture used for the AI sky detection capabilities.",
         "you": "For using and supporting RapidRAW. Your interest keeps this project alive and evolving.",
         "youLabel": "You"
       },
