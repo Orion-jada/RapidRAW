@@ -21,6 +21,16 @@ interface SearchCriteria {
   tags: string[];
   text: string;
   mode: 'AND' | 'OR';
+  /** Natural-language description searched with the AI model, '' when off. */
+  semantic: string;
+}
+
+export interface SemanticResults {
+  query: string;
+  /** Matching paths and their scores; null until the search finishes. */
+  scores: Record<string, number> | null;
+  progress: { current: number; total: number } | null;
+  isSearching: boolean;
 }
 
 interface LibraryState {
@@ -48,6 +58,7 @@ interface LibraryState {
   sortCriteria: SortCriteria;
   filterCriteria: FilterCriteria;
   searchCriteria: SearchCriteria;
+  semanticResults: SemanticResults | null;
 
   // UI State specific to the Library View
   isTreeLoading: boolean;
@@ -88,7 +99,8 @@ export const useLibraryStore = create<LibraryState>((set) => ({
 
   sortCriteria: { key: 'name', order: SortDirection.Ascending },
   filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All },
-  searchCriteria: { tags: [], text: '', mode: 'OR' },
+  searchCriteria: { tags: [], text: '', mode: 'OR', semantic: '' },
+  semanticResults: null,
 
   isTreeLoading: false,
   isViewLoading: false,

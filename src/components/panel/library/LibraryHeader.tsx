@@ -11,6 +11,7 @@ import {
   ChevronUp,
   ChevronDown,
   HelpCircle,
+  Sparkles,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -254,14 +255,23 @@ const RatingSegmentedSwitch = ({ rating, onChange, ratingFilterOptions, operator
 
 export function SearchInput({ indexingProgress, isIndexing }: any) {
   const { t } = useTranslation();
-  const { searchCriteria, setSearchCriteria } = useLibraryStore(
-    useShallow((state) => ({ searchCriteria: state.searchCriteria, setSearchCriteria: state.setSearchCriteria })),
+  const { searchCriteria, setSearchCriteria, semanticResults } = useLibraryStore(
+    useShallow((state) => ({
+      searchCriteria: state.searchCriteria,
+      setSearchCriteria: state.setSearchCriteria,
+      semanticResults: state.semanticResults,
+    })),
   );
   const [isSearchActive, setIsSearchActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const { tags, text, mode } = searchCriteria;
+  const { tags, text, mode, semantic } = searchCriteria;
+  // In AI mode the typed description only takes effect on Enter, so it doesn't filter by filename.
+  const [isAiMode, setIsAiMode] = useState(!!semantic);
+  const [aiDraft, setAiDraft] = useState('');
+  const isAiSearching = !!semantic && !!semanticResults?.isSearching;
+  const hasSearch = tags.length > 0 || !!text || !!semantic || !!aiDraft;
   const searchFocusRequest = useUIStore((state) => state.searchFocusRequest);
   const lastSearchFocusRequest = useRef(searchFocusRequest);
 
@@ -282,7 +292,7 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
 
   useEffect(() => {
     function handleClickOutside(event: any) {
-      if (containerRef.current && !containerRef.current.contains(event.target) && tags.length === 0 && !text) {
+      if (containerRef.current && !containerRef.current.contains(event.target) && !hasSearch) {
         setIsSearchActive(false);
       }
     }
@@ -290,7 +300,7 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [tags, text]);
+  }, [hasSearch]);
 
   useEffect(() => {
     if (contentRef.current) {
@@ -301,13 +311,29 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [tags, text, isSearchActive]);
+  }, [tags, text, semantic, aiDraft, isAiMode, isSearchActive]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchCriteria((prev) => ({ ...prev, text: e.target.value }));
+    if (isAiMode) {
+      setAiDraft(e.target.value);
+    } else {
+      setSearchCriteria((prev) => ({ ...prev, text: e.target.value }));
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isAiMode) {
+      if (e.key === 'Enter' && aiDraft.trim()) {
+        e.preventDefault();
+        setSearchCriteria((prev) => ({ ...prev, semantic: aiDraft.trim() }));
+        setAiDraft('');
+      } else if (e.key === 'Backspace' && !aiDraft && semantic) {
+        e.preventDefault();
+        setAiDraft(semantic);
+        setSearchCriteria((prev) => ({ ...prev, semantic: '' }));
+      }
+      return;
+    }
     if ((e.key === ',' || e.key === 'Enter') && text.trim()) {
       e.preventDefault();
       setSearchCriteria((prev) => ({
@@ -334,7 +360,8 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
   };
 
   const clearSearch = () => {
-    setSearchCriteria({ tags: [], text: '', mode: 'OR' });
+    setSearchCriteria({ tags: [], text: '', mode: 'OR', semantic: '' });
+    setAiDraft('');
     setIsSearchActive(false);
     inputRef.current?.blur();
   };
@@ -346,9 +373,26 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
     }));
   };
 
-  const isActive = isSearchActive || tags.length > 0 || !!text;
-  const placeholderText =
-    isIndexing && indexingProgress.total > 0
+  const toggleAiMode = () => {
+    if (isAiMode) {
+      setAiDraft('');
+    } else if (text.trim()) {
+      setAiDraft(text.trim());
+      setSearchCriteria((prev) => ({ ...prev, text: '' }));
+    }
+    setIsAiMode(!isAiMode);
+    inputRef.current?.focus();
+  };
+
+  const isActive = isSearchActive || hasSearch;
+  const aiProgress = semanticResults?.progress;
+  const placeholderText = isAiMode
+    ? isAiSearching && aiProgress && aiProgress.total > 0
+      ? t('library.header.search.aiAnalyzing', { current: aiProgress.current, total: aiProgress.total })
+      : isAiSearching
+        ? t('library.header.search.aiSearching')
+        : t('library.header.search.aiPlaceholder')
+    : isIndexing && indexingProgress.total > 0
       ? t('library.header.search.indexingProgress', {
           current: indexingProgress.current,
           total: indexingProgress.total,
@@ -360,7 +404,7 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
           : t('library.header.search.searchOrQuery');
 
   const INACTIVE_WIDTH = 48;
-  const PADDING_AND_ICONS_WIDTH = 100;
+  const PADDING_AND_ICONS_WIDTH = 130;
   const MAX_WIDTH = 680;
 
   const calculatedWidth = Math.min(MAX_WIDTH, contentWidth + PADDING_AND_ICONS_WIDTH);
@@ -389,6 +433,32 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
         style={{ opacity: isActive ? 1 : 0, pointerEvents: isActive ? 'auto' : 'none', transition: 'opacity 0.2s' }}
       >
         <div ref={contentRef} className="flex items-center gap-2 h-full flex-nowrap min-w-[250px] pr-2">
+          {semantic && (
+            <motion.div
+              key="semantic-query"
+              layout
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex items-center gap-1 bg-bg-primary px-2 py-1 rounded-sm group cursor-pointer shrink-0"
+              data-tooltip={t('library.header.search.tooltipRemoveAiSearch')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSearchCriteria((prev) => ({ ...prev, semantic: '' }));
+              }}
+            >
+              {isAiSearching ? (
+                <Loader2 size={12} className="text-accent animate-spin" />
+              ) : (
+                <Sparkles size={12} className="text-accent" />
+              )}
+              <Text variant={TextVariants.small} color={TextColors.primary} weight={TextWeights.medium}>
+                {semantic}
+              </Text>
+              <span className="rounded-full group-hover:bg-black/20 p-0.5 transition-colors">
+                <X size={12} />
+              </span>
+            </motion.div>
+          )}
           {tags.map((tag) => {
             const match = tag.match(ADVANCED_QUERY_REGEX);
             const isQuery = !!match;
@@ -425,9 +495,9 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
           })}
           <input
             className="grow w-full h-full bg-transparent text-text-primary placeholder-text-secondary border-none focus:outline-hidden min-w-[150px]"
-            disabled={isIndexing}
+            disabled={isIndexing && !isAiMode}
             onBlur={() => {
-              if (tags.length === 0 && !text) setIsSearchActive(false);
+              if (!hasSearch) setIsSearchActive(false);
             }}
             onChange={handleInputChange}
             onFocus={() => setIsSearchActive(true)}
@@ -435,7 +505,7 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
             placeholder={placeholderText}
             ref={inputRef}
             type="text"
-            value={text}
+            value={isAiMode ? aiDraft : text}
           />
         </div>
       </div>
@@ -455,13 +525,26 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
             </Text>
           </button>
         )}
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={toggleAiMode}
+          className={clsx(
+            'p-1.5 rounded-md hover:bg-bg-primary transition-colors shrink-0 outline-hidden',
+            isAiMode ? 'text-accent' : 'text-text-secondary hover:text-text-primary',
+          )}
+          data-tooltip={
+            isAiMode ? t('library.header.search.tooltipAiSearchOn') : t('library.header.search.tooltipAiSearchOff')
+          }
+        >
+          <Sparkles size={16} />
+        </button>
         <div
           className="p-1.5 rounded-md text-text-secondary hover:text-text-primary transition-colors cursor-help shrink-0 outline-hidden"
           data-tooltip={t('library.header.search.tooltipAdvancedQueries')}
         >
           <HelpCircle size={16} />
         </div>
-        {(tags.length > 0 || text) && !isIndexing && (
+        {hasSearch && (!isIndexing || isAiMode) && (
           <button
             onMouseDown={(e) => e.preventDefault()}
             onClick={clearSearch}

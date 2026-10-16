@@ -1073,13 +1073,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "フィルターまたは検索を追加...",
+        "aiAnalyzing": "写真を解析中... ({{current}}/{{total}})",
+        "aiPlaceholder": "写真の内容を入力（例: ビーチにいる犬）",
+        "aiSearchFailed": "AI 検索に失敗しました: {{error}}",
+        "aiSearching": "検索中...",
         "indexingImages": "画像をインデックス中...",
         "indexingProgress": "インデックス中... ({{current}}/{{total}})",
         "matchAll": "すべてのタグに一致",
         "matchAny": "いずれかのタグに一致",
         "searchOrQuery": "検索またはクエリを入力",
         "tooltipAdvancedQueries": "高度なクエリ: iso:>800, f:<=2.8, s:1/200, mm:50, camera:sony",
+        "tooltipAiSearchOff": "AI 検索: 内容を説明して写真を探す",
+        "tooltipAiSearchOn": "AI 検索がオンです。クリックでタグとファイル名の検索に切り替え",
         "tooltipClearSearch": "検索をクリア",
+        "tooltipRemoveAiSearch": "AI 検索を解除",
         "tooltipSearchFilter": "検索またはフィルター"
       },
       "title": "ライブラリ",
@@ -1146,6 +1153,7 @@
       "virtualCopiesWarning_other": "元画像が除外されているため、除外されていない仮想コピー {{count}} 件も削除されます。"
     },
     "search": {
+      "noAiResultsDesc": "この説明に一致する写真はありません。別の言い方で試してください。",
       "noResults": "結果が見つかりません",
       "noResultsAiHint": " より包括的な検索を行うには、設定で自動タグ付けを有効にしてください。",
       "noResultsDesc": "ファイル名またはタグに基づく画像が見つかりませんでした。"
@@ -1966,6 +1974,7 @@
         "rawler": "RAWファイル処理の基盤となる優れたRustライブラリを提供しています。",
         "realplksr": "書き出し時の AI アップスケールを支える超解像モデルを提供してくれたことに感謝します。",
         "sam2": "AI被写体検出機能の基盤となるモデルを提供しています。",
+        "siglip2": "自然言語による写真検索を支える多言語の画像・テキストモデルを提供しています。",
         "skywater": "AI による空の検出を支える空のセグメンテーションモデルを提供しています。",
         "spektrafilm": "RapidRAW の内蔵フィルムエミュレーションを支える、Andrea Volpato 氏によるスペクトルベースのフィルムエミュレーション LUT を提供してくださったことに。ライセンスは CC BY-SA 4.0 です。",
         "you": "RapidRAWをご利用、ご支援いただきありがとうございます。皆様のご関心こそが、プロジェクトの存続と発展の支えです。",

@@ -49,7 +49,7 @@ export interface GroupedLibrary {
 }
 
 function computeGroupedLibrary(libraryState: any, settingsState: any): GroupedLibrary {
-  const { imageList, imageRatings, filterCriteria, searchCriteria, sortCriteria } = libraryState;
+  const { imageList, imageRatings, filterCriteria, searchCriteria, semanticResults, sortCriteria } = libraryState;
   const { appSettings } = settingsState;
 
   const groupingMode: GroupingMode = appSettings?.grouping ?? 'off';
@@ -154,10 +154,13 @@ function computeGroupedLibrary(libraryState: any, settingsState: any): GroupedLi
     }
   };
 
-  const isSearchActive = parsedTags.length > 0 || lowerCaseSearchText !== '';
+  // AI search results replace the sort order with relevance once they arrive.
+  const semanticScores: Record<string, number> | null = semanticResults?.scores ?? null;
+  const isSearchActive = parsedTags.length > 0 || lowerCaseSearchText !== '' || semanticScores !== null;
 
   const matchesSearch = (image: ImageFile): boolean => {
     if (!isSearchActive) return true;
+    if (semanticScores && !(image.path in semanticScores)) return false;
 
     const lowerCaseImageTags = (image.tags || []).map((t) => t.toLowerCase().replace('user:', ''));
     const filename = image?.path?.split(/[\\/]/)?.pop()?.toLowerCase() || '';
@@ -189,6 +192,7 @@ function computeGroupedLibrary(libraryState: any, settingsState: any): GroupedLi
 
   let processedList = imageList.filter((image: ImageFile) => matchesFilter(image));
   let searchMatchingGroupIds: Set<string> | null = null;
+  const groupScores = new Map<string, number>();
 
   if (isGroupingActive) {
     const groupEditedFiles = appSettings?.groupEditedFiles ?? true;
@@ -201,6 +205,10 @@ function computeGroupedLibrary(libraryState: any, settingsState: any): GroupedLi
         if (!image.group_id) continue;
         if (matchesSearch(image)) {
           searchMatchingGroupIds.add(image.group_id);
+          const score = semanticScores?.[image.path];
+          if (score !== undefined && score > (groupScores.get(image.group_id) ?? -Infinity)) {
+            groupScores.set(image.group_id, score);
+          }
         }
       }
     }
@@ -218,7 +226,14 @@ function computeGroupedLibrary(libraryState: any, settingsState: any): GroupedLi
   const getRatingSortValue = (image: ImageFile) =>
     image.flag === ImageFlag.Reject ? -1 : imageRatings[image.path] || 0;
 
+  const relevance = (image: ImageFile) =>
+    semanticScores?.[image.path] ?? (image.group_id ? groupScores.get(image.group_id) : undefined) ?? -Infinity;
+
   list.sort((a, b) => {
+    if (semanticScores) {
+      const byRelevance = relevance(b) - relevance(a);
+      if (byRelevance !== 0) return byRelevance;
+    }
     const { key, order } = sortCriteria;
     let comparison = 0;
 
@@ -290,16 +305,17 @@ export function useSortedLibrary() {
   const imageRatings = useLibraryStore((state) => state.imageRatings);
   const filterCriteria = useLibraryStore((state) => state.filterCriteria);
   const searchCriteria = useLibraryStore((state) => state.searchCriteria);
+  const semanticResults = useLibraryStore((state) => state.semanticResults);
   const sortCriteria = useLibraryStore((state) => state.sortCriteria);
 
   const appSettings = useSettingsStore((state) => state.appSettings);
 
   const result = useMemo(() => {
     return computeGroupedLibrary(
-      { imageList, imageRatings, filterCriteria, searchCriteria, sortCriteria },
+      { imageList, imageRatings, filterCriteria, searchCriteria, semanticResults, sortCriteria },
       { appSettings },
     );
-  }, [imageList, sortCriteria, imageRatings, filterCriteria, searchCriteria, appSettings]);
+  }, [imageList, sortCriteria, imageRatings, filterCriteria, searchCriteria, semanticResults, appSettings]);
 
   return result;
 }

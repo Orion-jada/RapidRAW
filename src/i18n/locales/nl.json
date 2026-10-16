@@ -1063,13 +1063,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "Filter toevoegen of zoeken...",
+        "aiAnalyzing": "Foto's analyseren... ({{current}}/{{total}})",
+        "aiPlaceholder": "Beschrijf een foto, bijv. hond op het strand",
+        "aiSearchFailed": "AI-zoeken mislukt: {{error}}",
+        "aiSearching": "Zoeken...",
         "indexingImages": "Afbeeldingen indexeren...",
         "indexingProgress": "Indexeren... ({{current}}/{{total}})",
         "matchAll": "Alle tags overeenkomen",
         "matchAny": "Elke tag overeenkomen",
         "searchOrQuery": "Zoeken of query toevoegen",
         "tooltipAdvancedQueries": "Geavanceerde query's: iso:>800, f:<=2.8, s:1/200, mm:50, camera:sony",
+        "tooltipAiSearchOff": "AI-zoeken: vind foto's door ze te beschrijven",
+        "tooltipAiSearchOn": "AI-zoeken staat aan. Klik om op tags en bestandsnamen te zoeken",
         "tooltipClearSearch": "Zoekopdracht wissen",
+        "tooltipRemoveAiSearch": "AI-zoekopdracht verwijderen",
         "tooltipSearchFilter": "Zoeken of filteren"
       },
       "title": "Bibliotheek",
@@ -1125,6 +1132,7 @@
       "tooltipVirtualCopy": "Virtuele kopie"
     },
     "search": {
+      "noAiResultsDesc": "Geen foto's hier passen bij die beschrijving. Probeer het anders te omschrijven.",
       "noResults": "Geen resultaten gevonden",
       "noResultsAiHint": " Voor een uitgebreidere zoekopdracht kunt u automatische tags inschakelen bij instellingen.",
       "noResultsDesc": "Kon geen afbeelding vinden op basis van bestandsnaam of tags."
@@ -1941,6 +1949,7 @@
         "rawler": "Voor de uitstekende Rust-crate die de basis vormt voor RAW-bestandsverwerking in dit project.",
         "realplksr": "Voor het superresolutiemodel achter AI-opschaling bij het exporteren.",
         "sam2": "Voor het leveren van het basismodel dat wordt gebruikt voor de AI-onderwerpdetectiemogelijkheden.",
+        "siglip2": "Voor het meertalige beeld-tekstmodel achter het zoeken naar foto's in gewone taal.",
         "skywater": "Voor het luchtsegmentatiemodel achter de AI-luchtdetectie.",
         "spektrafilm": "Voor de spectraalgebaseerde filmemulatie-LUT's door Andrea Volpato, gebruikt voor de ingebouwde filmemulaties van RapidRAW. Gelicenseerd onder CC BY-SA 4.0.",
         "you": "Voor het gebruiken en ondersteunen van RapidRAW. Uw interesse houdt dit project levend en evoluerend.",

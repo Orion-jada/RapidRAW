@@ -649,7 +649,7 @@ export default function MainLibrary(props: MainLibraryProps) {
           </Text>
           <Text className="mt-2">{t('library.status.moment')}</Text>
         </div>
-      ) : searchCriteria.tags.length > 0 || searchCriteria.text ? (
+      ) : searchCriteria.tags.length > 0 || searchCriteria.text || searchCriteria.semantic ? (
         <div
           className="flex-1 flex flex-col items-center justify-center text-text-secondary text-center"
           onContextMenu={props.onEmptyAreaContextMenu}
@@ -659,8 +659,14 @@ export default function MainLibrary(props: MainLibraryProps) {
             {t('library.search.noResults')}
           </Text>
           <Text className="mt-2 max-w-sm">
-            {t('library.search.noResultsDesc')}
-            {!props.appSettings?.enableAiTagging && t('library.search.noResultsAiHint')}
+            {searchCriteria.semantic ? (
+              t('library.search.noAiResultsDesc')
+            ) : (
+              <>
+                {t('library.search.noResultsDesc')}
+                {!props.appSettings?.enableAiTagging && t('library.search.noResultsAiHint')}
+              </>
+            )}
           </Text>
         </div>
       ) : (

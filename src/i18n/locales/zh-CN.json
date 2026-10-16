@@ -1073,13 +1073,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "添加过滤或搜索...",
+        "aiAnalyzing": "正在分析照片...（{{current}}/{{total}}）",
+        "aiPlaceholder": "描述一张照片，例如：海滩上的狗",
+        "aiSearchFailed": "AI 搜索失败：{{error}}",
+        "aiSearching": "正在搜索...",
         "indexingImages": "索引图像中...",
         "indexingProgress": "索引中...（{{current}}/{{total}}）",
         "matchAll": "匹配所有标签",
         "matchAny": "匹配任意标签",
         "searchOrQuery": "搜索或添加查询",
         "tooltipAdvancedQueries": "高级查询：iso:>800, f:<=2.8, s:1/200, mm:50, camera:sony",
+        "tooltipAiSearchOff": "AI 搜索：通过描述查找照片",
+        "tooltipAiSearchOn": "AI 搜索已开启。点击切换为按标签和文件名搜索",
         "tooltipClearSearch": "清除搜索",
+        "tooltipRemoveAiSearch": "移除 AI 搜索",
         "tooltipSearchFilter": "搜索或过滤"
       },
       "title": "图库",
@@ -1146,6 +1153,7 @@
       "virtualCopiesWarning_other": "由于原始图像已被拒绝，{{count}} 个未被拒绝的虚拟副本也将被删除。"
     },
     "search": {
+      "noAiResultsDesc": "这里没有符合该描述的照片。试试换一种描述方式。",
       "noResults": "未找到结果",
       "noResultsAiHint": " 如需更全面的搜索，请在设置中启用自动标签。",
       "noResultsDesc": "无法根据文件名或标签找到图像。"
@@ -1966,6 +1974,7 @@
         "rawler": "为优秀的 Rust 库提供支持，构成了本项目 RAW 文件处理的基础。",
         "realplksr": "感谢提供超分辨率模型，为导出时的 AI 放大提供支持。",
         "sam2": "为提供基础模型，用于 AI 主体检测功能。",
+        "siglip2": "为提供多语言图文模型，为自然语言照片搜索提供支持。",
         "skywater": "为提供天空分割模型，为 AI 天空检测功能提供支持。",
         "spektrafilm": "感谢 Andrea Volpato 提供基于光谱的胶片模拟 LUT，为 RapidRAW 的内置胶片模拟提供支持。采用 CC BY-SA 4.0 许可。",
         "you": "感谢您使用和支持 RapidRAW。您的关注使本项目持续发展。",

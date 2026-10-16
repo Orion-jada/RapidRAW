@@ -1075,13 +1075,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "Filter oder Suche hinzufügen...",
+        "aiAnalyzing": "Fotos werden analysiert... ({{current}}/{{total}})",
+        "aiPlaceholder": "Foto beschreiben, z. B. Hund am Strand",
+        "aiSearchFailed": "KI-Suche fehlgeschlagen: {{error}}",
+        "aiSearching": "Suche läuft...",
         "indexingImages": "Bilder werden indiziert...",
         "indexingProgress": "Wird indiziert... ({{current}}/{{total}})",
         "matchAll": "ALLE Tags übereinstimmend",
         "matchAny": "EINE der Tags übereinstimmend",
         "searchOrQuery": "Suchen oder Abfrage hinzufügen",
         "tooltipAdvancedQueries": "Erweiterte Abfragen: iso:>800, f:<=2.8, s:1/200, mm:50, camera:sony",
+        "tooltipAiSearchOff": "KI-Suche: Fotos per Beschreibung finden",
+        "tooltipAiSearchOn": "KI-Suche ist aktiv. Klicken, um nach Tags und Dateinamen zu suchen",
         "tooltipClearSearch": "Suche löschen",
+        "tooltipRemoveAiSearch": "KI-Suche entfernen",
         "tooltipSearchFilter": "Suchen oder Filtern"
       },
       "title": "Bibliothek",
@@ -1148,6 +1155,7 @@
       "virtualCopiesWarning_other": "{{count}} nicht abgelehnte virtuelle Kopien werden ebenfalls gelöscht, weil ihre Originale abgelehnt sind."
     },
     "search": {
+      "noAiResultsDesc": "Keine Fotos hier passen zu dieser Beschreibung. Versuche es mit einer anderen Formulierung.",
       "noResults": "Keine Ergebnisse gefunden",
       "noResultsAiHint": " Für eine umfassendere Suche aktivieren Sie das automatische Tagging in den Einstellungen.",
       "noResultsDesc": "Es konnte kein Bild basierend auf Dateinamen oder Tags gefunden werden."
@@ -1968,6 +1976,7 @@
         "rawler": "Für die hervorragende Rust-Crate zur RAW-Bildverarbeitung.",
         "realplksr": "Für das Super-Resolution-Modell hinter der KI-Hochskalierung beim Export.",
         "sam2": "Für das grundlegende Modell der KI-Motiverkennung.",
+        "siglip2": "Für das mehrsprachige Bild-Text-Modell hinter der Fotosuche in natürlicher Sprache.",
         "skywater": "Für das Segmentierungsmodell hinter der KI-Himmelserkennung.",
         "spektrafilm": "Für die spektralbasierten Filmemulations-LUTs von Andrea Volpato, die RapidRAWs integrierte Filmemulationen ermöglichen. Lizenziert unter CC BY-SA 4.0.",
         "you": "Dafür, dass Sie RapidRAW nutzen. Ihr Interesse hält dieses Projekt am Leben.",

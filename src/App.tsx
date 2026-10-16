@@ -51,6 +51,7 @@ import { useTauriListeners } from './hooks/useTauriListeners';
 import { useFileOperations } from './hooks/useFileOperations';
 import { useAppContextMenus } from './hooks/useAppContextMenus';
 import { useSortedLibrary } from './hooks/useSortedLibrary';
+import { useSemanticSearch } from './hooks/useSemanticSearch';
 import { useAppNavigation } from './hooks/useAppNavigation';
 import { useExternalEditSession } from './hooks/useExternalEditSession';
 import ExternalEditBar from './components/ui/ExternalEditBar';
@@ -380,6 +381,7 @@ function App() {
     return () => setImageSelectHandler(null);
   }, [handleImageSelect]);
 
+  useSemanticSearch();
   const { displayList: sortedImageList, badges: groupBadgeInfo } = useSortedLibrary();
 
   const handleLibraryRefresh = useCallback(async () => {

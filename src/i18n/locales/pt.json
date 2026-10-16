@@ -1098,13 +1098,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "Adicionar filtro ou pesquisar...",
+        "aiAnalyzing": "Analisando fotos... ({{current}}/{{total}})",
+        "aiPlaceholder": "Descreva uma foto, ex.: cachorro na praia",
+        "aiSearchFailed": "A pesquisa com IA falhou: {{error}}",
+        "aiSearching": "Pesquisando...",
         "indexingImages": "Indexando Imagens...",
         "indexingProgress": "Indexando... ({{current}}/{{total}})",
         "matchAll": "Corresponder a TODAS as etiquetas",
         "matchAny": "Corresponder a QUALQUER etiqueta",
         "searchOrQuery": "Pesquisar ou adicionar consulta",
         "tooltipAdvancedQueries": "Consultas Avançadas: iso:>800, f:<=2.8, s:1/200, mm:50, camera:sony",
+        "tooltipAiSearchOff": "Pesquisa com IA: encontre fotos descrevendo-as",
+        "tooltipAiSearchOn": "Pesquisa com IA ativada. Clique para pesquisar por tags e nomes de arquivo",
         "tooltipClearSearch": "Limpar pesquisa",
+        "tooltipRemoveAiSearch": "Remover pesquisa com IA",
         "tooltipSearchFilter": "Pesquisar ou Filtrar"
       },
       "title": "Biblioteca",
@@ -1174,6 +1181,7 @@
       "virtualCopiesWarning_other": "{{count}} cópias virtuais não rejeitadas também serão excluídas porque seus originais estão rejeitados."
     },
     "search": {
+      "noAiResultsDesc": "Nenhuma foto aqui corresponde a essa descrição. Tente descrevê-la de outra forma.",
       "noResults": "Nenhum Resultado Encontrado",
       "noResultsAiHint": " Para uma pesquisa mais abrangente, ative o tagging automático em Configurações.",
       "noResultsDesc": "Não foi possível encontrar uma imagem com base no nome do arquivo ou nas etiquetas."
@@ -2004,6 +2012,7 @@
         "rawler": "Pelo excelente crate Rust que fornece a base para o processamento de arquivos RAW neste projeto.",
         "realplksr": "Pelo modelo de super-resolução que alimenta a ampliação com IA na exportação.",
         "sam2": "Por fornecer o modelo base usado para os recursos de detecção de motivos por IA.",
+        "siglip2": "Pelo modelo multilíngue de imagem e texto que possibilita a pesquisa de fotos em linguagem natural.",
         "skywater": "Pelo modelo de segmentação de céu que alimenta a detecção de céu por IA.",
         "spektrafilm": "Pelas LUTs de emulação de filme com base espectral, de Andrea Volpato, que alimentam as emulações integradas do RapidRAW. Licenciadas sob CC BY-SA 4.0.",
         "you": "Por usar e apoiar o RapidRAW. Seu interesse mantém este projeto vivo e em evolução.",

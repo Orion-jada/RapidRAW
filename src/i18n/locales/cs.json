@@ -1074,13 +1074,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "Přidat filtr nebo hledat...",
+        "aiAnalyzing": "Analyzuji fotky... ({{current}}/{{total}})",
+        "aiPlaceholder": "Popište fotku, např. pes na pláži",
+        "aiSearchFailed": "Vyhledávání AI selhalo: {{error}}",
+        "aiSearching": "Hledám...",
         "indexingImages": "Indexování snímků...",
         "indexingProgress": "Indexuje se... ({{current}}/{{total}})",
         "matchAll": "Odpovídá VŠEM podmínkám",
         "matchAny": "Odpovídá JAKÉKOLI z podmínek",
         "searchOrQuery": "Vyhledejte nebo přidejte dotaz",
         "tooltipAdvancedQueries": "Pokročilé dotazy: iso:>800, f:<=2,8, s:1/200, mm:50, kamera:sony",
+        "tooltipAiSearchOff": "Vyhledávání AI: najděte fotky jejich popisem",
+        "tooltipAiSearchOn": "Vyhledávání AI je zapnuté. Kliknutím budete hledat podle štítků a názvů souborů",
         "tooltipClearSearch": "Vymazat vyhledávání",
+        "tooltipRemoveAiSearch": "Odebrat vyhledávání AI",
         "tooltipSearchFilter": "Hledat nebo filtrovat"
       },
       "title": "Knihovna",
@@ -1147,6 +1154,7 @@
       "virtualCopiesWarning_other": "{{count}} virtuálních kopií, které nejsou odmítnuté, bude také smazáno, protože jejich originály jsou odmítnuté."
     },
     "search": {
+      "noAiResultsDesc": "Žádná fotka zde neodpovídá tomuto popisu. Zkuste ji popsat jinak.",
       "noResults": "Nebyly nalezeny žádné výsledky",
       "noResultsAiHint": " Pro komplexnější vyhledávání povolte automatické značkování v Nastavení.",
       "noResultsDesc": "Nelze najít snímek podle názvu souboru nebo značek."
@@ -1967,6 +1975,7 @@
         "rawler": "Za vynikající přepravku Rust, která poskytuje základ pro zpracování souborů RAW v tomto projektu.",
         "realplksr": "Za model superrozlišení, který pohání AI zvětšení při exportu.",
         "sam2": "Za poskytnutí základního modelu používaného pro schopnosti detekce předmětů AI.",
+        "siglip2": "Za vícejazyčný model obrazu a textu, který pohání vyhledávání fotek v přirozeném jazyce.",
         "skywater": "Za model segmentace oblohy, který pohání detekci oblohy pomocí AI.",
         "spektrafilm": "Pro spektrálně založené filmové emulační LUT od Andrey Volpata, použité pro vestavěné filmové emulace v RapidRAW. Licence CC BY-SA 4.0.",
         "you": "Za používání a podporu RapidRAW. Váš zájem udržuje tento projekt živý a rozvíjející se.",

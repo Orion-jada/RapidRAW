@@ -1883,6 +1883,17 @@ export default function SettingsPanel({
                       </li>
                       <li>
                         <a
+                          href="https://huggingface.co/google/siglip2-base-patch16-224"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-accent hover:underline"
+                        >
+                          SigLIP 2
+                        </a>
+                        : {t('settings.thanks.list.siglip2')}
+                      </li>
+                      <li>
+                        <a
                           href="https://github.com/ZhengPeng7/BiRefNet"
                           target="_blank"
                           rel="noopener noreferrer"

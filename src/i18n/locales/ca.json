@@ -1075,13 +1075,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "Afegir filtre o cercar...",
+        "aiAnalyzing": "S'estan analitzant les fotos... ({{current}}/{{total}})",
+        "aiPlaceholder": "Descriu una foto, p. ex. gos a la platja",
+        "aiSearchFailed": "La cerca amb IA ha fallat: {{error}}",
+        "aiSearching": "Cercant...",
         "indexingImages": "S'estan indexant les imatges...",
         "indexingProgress": "Indexant... ({{current}}/{{total}})",
         "matchAll": "Coincidir TOTES les etiquetes",
         "matchAny": "Coincidir QUALSEVOL etiqueta",
         "searchOrQuery": "Cercar o afegir consulta",
         "tooltipAdvancedQueries": "Consultes avançades: iso:>800, f:<=2.8, s:1/200, mm:50, camera:sony",
+        "tooltipAiSearchOff": "Cerca amb IA: troba fotos descrivint-les",
+        "tooltipAiSearchOn": "Cerca amb IA activada. Fes clic per cercar per etiquetes i noms de fitxer",
         "tooltipClearSearch": "Netejar cerca",
+        "tooltipRemoveAiSearch": "Treu la cerca amb IA",
         "tooltipSearchFilter": "Cercar o Filtrar"
       },
       "title": "Biblioteca",
@@ -1150,6 +1157,7 @@
       "virtualCopiesWarning_other": "També s'eliminaran {{count}} còpies virtuals no rebutjades perquè els seus originals estan rebutjats."
     },
     "search": {
+      "noAiResultsDesc": "Cap foto d'aquí coincideix amb aquesta descripció. Prova de descriure-la d'una altra manera.",
       "noResults": "No s'han trobat resultats",
       "noResultsAiHint": " Per a una cerca més completa, activeu l'etiquetatge automàtic a Configuració.",
       "noResultsDesc": "No s'ha pogut trobar una imatge basada en el nom de fitxer o les etiquetes."
@@ -1970,6 +1978,7 @@
         "rawler": "Per l'excel·lent component de Rust que proporciona la base per al processament de fitxers RAW en aquest projecte.",
         "realplksr": "Pel model de superresolució que impulsa l'ampliació amb IA en exportar.",
         "sam2": "Per proporcionar el model de base utilitzat per a les capacitats de detecció de subjectes per IA.",
+        "siglip2": "Pel model multilingüe d'imatge i text que fa possible la cerca de fotos en llenguatge natural.",
         "skywater": "Pel model de segmentació del cel que impulsa la detecció de cel per IA.",
         "spektrafilm": "Per les LUTs d'emulació de pel·lícula basades en espectres, d'Andrea Volpato, que impulsen les emulacions integrades de RapidRAW. Amb llicència CC BY-SA 4.0.",
         "you": "A vosaltres, per utilitzar i donar suport a RapidRAW. El vostre interès manté aquest projecte viu i en evolució.",

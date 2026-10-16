@@ -695,6 +695,7 @@ These features are integrated directly into RapidRAW and run entirely on your lo
 
 - **AI Masking:** Instantly detect and mask subjects, skies, foregrounds, and depth maps (powered by SAM 2, BiRefNet, SkyWater-Seg, and Depth Anything V2).
 - **Automatic Tagging:** The image library is automatically indexed with keywords using a local CLIP model for effortless search.
+- **Natural-Language Search:** Turn on AI search (the sparkles button in the library search bar) and describe a photo, like "dog on a beach" or "red car at night", in any of many languages. A local SigLIP 2 model ranks the folder by relevance, running on the GPU on Apple Silicon.
 - **Simple Generative Replace:** A lightweight, CPU-based inpainting tool (via LaMa) for removing sensor dust, blemishes, and small distractions.
 
 ### 2. Self-Hosted Integration with ComfyUI (Local & Free)
@@ -1034,6 +1035,7 @@ A huge thank you to the following projects and tools that were very important in
 - **[LaMa](https://github.com/advimman/lama):** For the powerful & simple image inpainting model, which enables content-aware fill and object removal.
 - **[SAM 2](https://github.com/facebookresearch/sam2):** For providing the foundation model used for the AI subject detection capabilities.
 - **[SkyWater-Seg](https://huggingface.co/Realcat/skywater_seg):** For the sky segmentation model that powers the AI sky detection capabilities.
+- **[SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224):** For Google's Apache-2.0 multilingual image-text model that powers natural-language photo search.
 - **[BiRefNet](https://github.com/ZhengPeng7/BiRefNet):** For the high-accuracy segmentation model that powers the AI foreground detection capabilities.
 - **[Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2):** For the powerful monocular depth estimation model that enables the AI depth masking capabilities.
 - **[nind-denoise](https://github.com/trougnouf/nind-denoise) / [RawNIND](https://github.com/trougnouf/rawnind_jddc):** For providing AI models that power the AI noise reduction capabilities in RapidRAW (RawNIND for RAW files, via [darktable-ai](https://github.com/darktable-org/darktable-ai)'s ONNX export).

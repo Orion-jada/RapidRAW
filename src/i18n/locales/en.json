@@ -1075,13 +1075,20 @@
     "header": {
       "search": {
         "addFilterOrSearch": "Add filter or search...",
+        "aiAnalyzing": "Analyzing photos... ({{current}}/{{total}})",
+        "aiPlaceholder": "Describe a photo, e.g. dog on a beach",
+        "aiSearchFailed": "AI search failed: {{error}}",
+        "aiSearching": "Searching...",
         "indexingImages": "Indexing Images...",
         "indexingProgress": "Indexing... ({{current}}/{{total}})",
         "matchAll": "Match ALL tags",
         "matchAny": "Match ANY tags",
         "searchOrQuery": "Search or add query",
         "tooltipAdvancedQueries": "Advanced Queries: iso:>800, f:<=2.8, s:1/200, mm:50, camera:sony",
+        "tooltipAiSearchOff": "AI search: find photos by describing them",
+        "tooltipAiSearchOn": "AI search is on. Click to search tags and filenames",
         "tooltipClearSearch": "Clear search",
+        "tooltipRemoveAiSearch": "Remove AI search",
         "tooltipSearchFilter": "Search or Filter"
       },
       "title": "Library",
@@ -1148,6 +1155,7 @@
       "virtualCopiesWarning_other": "{{count}} virtual copies that are not rejected will also be deleted because their originals are rejected."
     },
     "search": {
+      "noAiResultsDesc": "No photos here match that description. Try describing it differently.",
       "noResults": "No Results Found",
       "noResultsAiHint": " For a more comprehensive search, enable automatic tagging in Settings.",
       "noResultsDesc": "Could not find an image based on filename or tags."
@@ -1968,6 +1976,7 @@
         "rawler": "For the excellent Rust crate that provides the foundation for RAW file processing in this project.",
         "realplksr": "For the super-resolution model that powers AI upscaling on export.",
         "sam2": "For providing the foundation model used for the AI subject detection capabilities.",
+        "siglip2": "For the multilingual image-text model that powers natural-language photo search.",
         "skywater": "For the sky segmentation model that powers the AI sky detection capabilities.",
         "spektrafilm": "For the spectrally-based film emulation LUTs by Andrea Volpato, used to power RapidRAW's built-in film emulations. Licensed CC BY-SA 4.0.",
         "you": "For using and supporting RapidRAW. Your interest keeps this project alive and evolving.",

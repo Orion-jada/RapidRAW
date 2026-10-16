@@ -62,6 +62,7 @@ mod panorama_utils;
 mod preset_converter;
 mod raw_processing;
 mod relight;
+mod semantic_search;
 mod tagging;
 mod tagging_utils;
 mod white_balance;
@@ -2426,6 +2427,7 @@ pub fn run() {
             tagging::add_tag_for_paths,
             tagging::remove_tag_for_paths,
             culling::cull_images,
+            semantic_search::semantic_search,
             lens_correction::get_lensfun_makers,
             lens_correction::get_lensfun_lenses_for_maker,
             lens_correction::autodetect_lens,

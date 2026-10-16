@@ -48,6 +48,22 @@ const SKY_INPUT_SIZE: u32 = 512;
 const SKY_NUM_CLASSES: usize = 4;
 const SKY_CLASS: usize = 1;
 
+// SigLIP 2 (ViT-B/16, 224px) for natural-language photo search. The vision tower is fixed to a
+// 1x3x224x224 input and patched so CoreML runs all of it, with float16 weights cast back to
+// float32 at load. The multilingual text tower (int8) and its tokenizer come unchanged from
+// onnx-community's export, pinned to a revision.
+const SEARCH_VISION_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/search-v1/siglip2_vision_b16_224.onnx";
+const SEARCH_VISION_FILENAME: &str = "siglip2_vision_b16_224.onnx";
+const SEARCH_VISION_SHA256: &str =
+    "2d507cd867c4f4b4f0f315ad5d18237ec2b359b157dfa23750a200cdc9b56197";
+const SEARCH_TEXT_URL: &str = "https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/ba1f3b0843f24bc5417d38e19c37b287d719b2f4/onnx/text_model_quantized.onnx";
+const SEARCH_TEXT_FILENAME: &str = "siglip2_text_b16_int8.onnx";
+const SEARCH_TEXT_SHA256: &str = "3a0603d3a00c05a80a6ded4743c16aaac7b1e62cdcc7e362e7ce418659b96400";
+const SEARCH_TOKENIZER_URL: &str = "https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/ba1f3b0843f24bc5417d38e19c37b287d719b2f4/tokenizer.json";
+const SEARCH_TOKENIZER_FILENAME: &str = "siglip2_tokenizer.json";
+const SEARCH_TOKENIZER_SHA256: &str =
+    "cb9140fae3ac5122c972d37adf83e1248471a38147ad76f8215c8872c6fd8322";
+
 const CLIP_MODEL_URL: &str =
     "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/clip_model.onnx?download=true";
 const CLIP_MODEL_FILENAME: &str = "clip_model.onnx";
@@ -117,6 +133,14 @@ pub struct ClipModels {
     pub tokenizer: Tokenizer,
 }
 
+/// SigLIP 2 image and text towers for natural-language search.
+pub struct SearchModels {
+    /// Starts on CPU while CoreML compiles the model for the first time, then swaps to CoreML.
+    pub vision: Arc<Mutex<Session>>,
+    pub text: Mutex<Session>,
+    pub tokenizer: Tokenizer,
+}
+
 #[derive(Clone)]
 pub struct ImageEmbeddings {
     pub path_hash: String,
@@ -141,6 +165,7 @@ pub struct AiState {
     pub foreground_model: Option<Arc<Mutex<Session>>>,
     pub sky_model: Option<Arc<Mutex<Session>>>,
     pub clip_models: Option<Arc<ClipModels>>,
+    pub search_models: Option<Arc<SearchModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
     pub normal_model: Option<Arc<Mutex<Session>>>,
     pub embeddings: Option<ImageEmbeddings>,
@@ -399,6 +424,16 @@ fn build_session(
     Ok(Session::builder()?.commit_from_file(model_path)?)
 }
 
+/// Keyed by the model's hash so updated weights never reuse a stale compiled model.
+#[cfg(target_os = "macos")]
+fn coreml_cache_dir(model_path: &Path, model_sha256: &str) -> PathBuf {
+    model_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("coreml_cache")
+        .join(&model_sha256[..16])
+}
+
 #[cfg(target_os = "macos")]
 fn build_coreml_session(
     model_path: &Path,
@@ -407,12 +442,7 @@ fn build_coreml_session(
 ) -> Result<Session> {
     use ort::execution_providers::coreml::{CoreMLExecutionProvider, CoreMLModelFormat};
 
-    // Keyed by the model's hash so updated weights never reuse a stale compiled model.
-    let cache_dir = model_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("coreml_cache")
-        .join(&model_sha256[..16]);
+    let cache_dir = coreml_cache_dir(model_path, model_sha256);
     fs::create_dir_all(&cache_dir)?;
 
     let coreml = CoreMLExecutionProvider::default()
@@ -425,6 +455,48 @@ fn build_coreml_session(
     Ok(Session::builder()?
         .with_execution_providers([coreml])?
         .commit_from_file(model_path)?)
+}
+
+/// Like `build_session`, for models CoreML takes over a minute to prepare on first load (and
+/// again whenever macOS drops its cache). Returns a CPU session at once and swaps in the CoreML
+/// one when it's ready, so nothing waits on the compile.
+fn build_session_upgrading(
+    model_path: &Path,
+    model_sha256: &str,
+    coreml_units: CoreMLComputeUnits,
+) -> Result<Arc<Mutex<Session>>> {
+    let session = Arc::new(Mutex::new(
+        Session::builder()?.commit_from_file(model_path)?,
+    ));
+
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_none() {
+        let target = Arc::downgrade(&session);
+        let path = model_path.to_path_buf();
+        let sha = model_sha256.to_string();
+        std::thread::spawn(
+            move || match build_coreml_session(&path, &sha, coreml_units) {
+                Ok(coreml) => {
+                    if let Some(target) = target.upgrade() {
+                        *target.lock().unwrap() = coreml;
+                        log::info!("Switched {} to CoreML ({:?})", path.display(), coreml_units);
+                    }
+                }
+                Err(e) => {
+                    let _ = fs::remove_dir_all(coreml_cache_dir(&path, &sha));
+                    log::warn!(
+                        "CoreML failed for {}, staying on CPU: {}",
+                        path.display(),
+                        e
+                    );
+                }
+            },
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (model_sha256, coreml_units);
+
+    Ok(session)
 }
 
 fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
@@ -616,6 +688,7 @@ pub async fn get_or_init_ai_models(
             foreground_model: None,
             sky_model: None,
             clip_models: None,
+            search_models: None,
             lama_model: None,
             normal_model: None,
             embeddings: None,
@@ -685,6 +758,7 @@ pub async fn get_or_init_denoise_model(
             foreground_model: None,
             sky_model: None,
             clip_models: None,
+            search_models: None,
             lama_model: None,
             normal_model: None,
             embeddings: None,
@@ -754,6 +828,7 @@ pub async fn get_or_init_raw_denoise_model(
             foreground_model: None,
             sky_model: None,
             clip_models: None,
+            search_models: None,
             lama_model: None,
             normal_model: None,
             embeddings: None,
@@ -823,6 +898,7 @@ pub async fn get_or_init_upscale_model(
             foreground_model: None,
             sky_model: None,
             clip_models: None,
+            search_models: None,
             lama_model: None,
             normal_model: None,
             embeddings: None,
@@ -892,6 +968,7 @@ pub async fn get_or_init_foreground_model(
             foreground_model: Some(foreground_model.clone()),
             sky_model: None,
             clip_models: None,
+            search_models: None,
             lama_model: None,
             normal_model: None,
             embeddings: None,
@@ -957,6 +1034,7 @@ pub async fn get_or_init_sky_model(
             foreground_model: None,
             sky_model: Some(sky_model.clone()),
             clip_models: None,
+            search_models: None,
             lama_model: None,
             normal_model: None,
             embeddings: None,
@@ -1034,6 +1112,7 @@ pub async fn get_or_init_clip_models(
             foreground_model: None,
             sky_model: None,
             clip_models: Some(clip_models.clone()),
+            search_models: None,
             lama_model: None,
             normal_model: None,
             embeddings: None,
@@ -1042,6 +1121,98 @@ pub async fn get_or_init_clip_models(
     }
 
     Ok(clip_models)
+}
+
+pub async fn get_or_init_search_models(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<SearchModels>> {
+    let cached = || {
+        ai_state_mutex
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|state| state.search_models.clone())
+    };
+    if let Some(search_models) = cached() {
+        return Ok(search_models);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(search_models) = cached() {
+        return Ok(search_models);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    for (filename, url, sha, name) in [
+        (
+            SEARCH_VISION_FILENAME,
+            SEARCH_VISION_URL,
+            SEARCH_VISION_SHA256,
+            "Search Image Model",
+        ),
+        (
+            SEARCH_TEXT_FILENAME,
+            SEARCH_TEXT_URL,
+            SEARCH_TEXT_SHA256,
+            "Search Text Model",
+        ),
+        (
+            SEARCH_TOKENIZER_FILENAME,
+            SEARCH_TOKENIZER_URL,
+            SEARCH_TOKENIZER_SHA256,
+            "Search Tokenizer",
+        ),
+    ] {
+        download_and_verify_model(app_handle, &models_dir, filename, url, sha, name).await?;
+    }
+
+    let _ = ort::init().with_name("AI-Search").commit();
+    let vision = build_session_upgrading(
+        &models_dir.join(SEARCH_VISION_FILENAME),
+        SEARCH_VISION_SHA256,
+        CoreMLComputeUnits::CPUAndGPU,
+    )?;
+    // int8: stays on CPU, where a short query takes ~15 ms.
+    let text = Mutex::new(build_session(
+        &models_dir.join(SEARCH_TEXT_FILENAME),
+        SEARCH_TEXT_SHA256,
+        None,
+    )?);
+    let tokenizer = Tokenizer::from_file(models_dir.join(SEARCH_TOKENIZER_FILENAME))
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    crate::register_exit_handler();
+
+    let search_models = Arc::new(SearchModels {
+        vision,
+        text,
+        tokenizer,
+    });
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.search_models = Some(search_models.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            raw_denoise_model: None,
+            upscale_model: None,
+            foreground_model: None,
+            sky_model: None,
+            clip_models: None,
+            search_models: Some(search_models.clone()),
+            lama_model: None,
+            normal_model: None,
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(search_models)
 }
 
 pub async fn get_or_init_lama_model(
@@ -1099,6 +1270,7 @@ pub async fn get_or_init_lama_model(
             foreground_model: None,
             sky_model: None,
             clip_models: None,
+            search_models: None,
             lama_model: Some(lama_model.clone()),
             normal_model: None,
             embeddings: None,
@@ -1164,6 +1336,7 @@ pub async fn get_or_init_normal_model(
             foreground_model: None,
             sky_model: None,
             clip_models: None,
+            search_models: None,
             lama_model: None,
             normal_model: Some(normal_model.clone()),
             embeddings: None,

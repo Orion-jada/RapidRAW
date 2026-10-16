@@ -94,6 +94,7 @@ export enum Invokes {
   SaveHdr = 'save_hdr',
   SavePresets = 'save_presets',
   SaveSettings = 'save_settings',
+  SemanticSearch = 'semantic_search',
   SetColorLabelForPaths = 'set_color_label_for_paths',
   SetRatingForPaths = 'set_rating_for_paths',
   SetFlagForPaths = 'set_flag_for_paths',
