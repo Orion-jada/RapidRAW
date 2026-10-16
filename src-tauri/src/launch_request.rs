@@ -23,6 +23,8 @@ pub struct HeadlessExportSession {
     pub tiff_bit_depth: TiffBitDepth,
     pub keep_metadata: bool,
     pub adjustments_override: Option<String>,
+    /// AI 2x upscale strength in [0, 1], if requested.
+    pub ai_upscale: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
@@ -69,6 +71,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
         let mut tiff_bit_depth = TiffBitDepth::default();
         let mut keep_metadata = false;
         let mut adjustments_override = None;
+        let mut ai_upscale = None;
 
         if let Some(src) = iter.next()
             && !src.starts_with('-')
@@ -114,6 +117,17 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
                     tiff_bit_depth = value;
                 }
                 "--keep-metadata" => keep_metadata = true,
+                "--ai-upscale" => {
+                    let strength = iter.next().and_then(|v| v.parse::<f32>().ok());
+                    match strength {
+                        Some(v) if (0.0..=100.0).contains(&v) => ai_upscale = Some(v / 100.0),
+                        _ => {
+                            return LaunchRequest::InvalidHeadless(
+                                "--ai-upscale expects a strength from 0 to 100.".to_string(),
+                            );
+                        }
+                    }
+                }
                 "--adjustments" => {
                     if let Some(adj) = iter.next() {
                         adjustments_override = Some(adj.clone());
@@ -131,6 +145,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
             tiff_bit_depth,
             keep_metadata,
             adjustments_override,
+            ai_upscale,
         });
     }
 

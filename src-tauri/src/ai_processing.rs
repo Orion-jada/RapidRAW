@@ -76,6 +76,16 @@ const REC2020_TO_REC709: [[f32; 3]; 3] = [
     [-0.018_151_1, -0.100_578_7, 1.118_73],
 ];
 
+// 2x super-resolution: Phhofm's 2xPublic_realplksr_dysample_layernorm_real (Apache-2.0), trained
+// on photos degraded with blur, noise, JPEG and oversharpening, so it cleans those up while it
+// upscales. Retargeted to a 512x512 sRGB tile and rewritten so CoreML runs the whole graph.
+const UPSCALE_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/upscale-v1/realplksr_2x_real_512.onnx";
+const UPSCALE_FILENAME: &str = "realplksr_2x_real_512.onnx";
+const UPSCALE_SHA256: &str = "3fb055da243bfa717212a39e032cf510bed80315c15d72e098adc05b1f7837b4";
+const UPSCALE_TILE: usize = 512;
+const UPSCALE_OVERLAP: usize = 96;
+const UPSCALE_BORDER: usize = 24;
+
 const LAMA_URL: &str =
     "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/lama_fp16.onnx?download=true";
 const LAMA_FILENAME: &str = "lama_fp16.onnx";
@@ -124,6 +134,7 @@ pub struct AiState {
     pub models: Option<Arc<AiModels>>,
     pub denoise_model: Option<Arc<Mutex<Session>>>,
     pub raw_denoise_model: Option<Arc<Mutex<Session>>>,
+    pub upscale_model: Option<Arc<Mutex<Session>>>,
     pub foreground_model: Option<Arc<Mutex<Session>>>,
     pub clip_models: Option<Arc<ClipModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
@@ -647,6 +658,7 @@ pub async fn get_or_init_ai_models(
             models: Some(models.clone()),
             denoise_model: None,
             raw_denoise_model: None,
+            upscale_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: None,
@@ -714,6 +726,7 @@ pub async fn get_or_init_denoise_model(
             models: None,
             denoise_model: Some(denoise_model.clone()),
             raw_denoise_model: None,
+            upscale_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: None,
@@ -781,6 +794,7 @@ pub async fn get_or_init_raw_denoise_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: Some(raw_denoise_model.clone()),
+            upscale_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: None,
@@ -791,6 +805,74 @@ pub async fn get_or_init_raw_denoise_model(
     }
 
     Ok(raw_denoise_model)
+}
+
+pub async fn get_or_init_upscale_model(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<Mutex<Session>>> {
+    if let Some(upscale_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.upscale_model.clone())
+    {
+        return Ok(upscale_model);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(upscale_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.upscale_model.clone())
+    {
+        return Ok(upscale_model);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        UPSCALE_FILENAME,
+        UPSCALE_URL,
+        UPSCALE_SHA256,
+        "RealPLKSR Upscale Model",
+    )
+    .await?;
+
+    let _ = ort::init().with_name("AI-Upscale").commit();
+    let model_path = models_dir.join(UPSCALE_FILENAME);
+    let session = build_session(
+        &model_path,
+        UPSCALE_SHA256,
+        Some(CoreMLComputeUnits::CPUAndGPU),
+    )?;
+    let upscale_model = Arc::new(Mutex::new(session));
+
+    crate::register_exit_handler();
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.upscale_model = Some(upscale_model.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            raw_denoise_model: None,
+            upscale_model: Some(upscale_model.clone()),
+            foreground_model: None,
+            clip_models: None,
+            lama_model: None,
+            normal_model: None,
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(upscale_model)
 }
 
 pub async fn get_or_init_foreground_model(
@@ -848,6 +930,7 @@ pub async fn get_or_init_foreground_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            upscale_model: None,
             foreground_model: Some(foreground_model.clone()),
             clip_models: None,
             lama_model: None,
@@ -923,6 +1006,7 @@ pub async fn get_or_init_clip_models(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            upscale_model: None,
             foreground_model: None,
             clip_models: Some(clip_models.clone()),
             lama_model: None,
@@ -986,6 +1070,7 @@ pub async fn get_or_init_lama_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            upscale_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: Some(lama_model.clone()),
@@ -1049,6 +1134,7 @@ pub async fn get_or_init_normal_model(
             models: None,
             denoise_model: None,
             raw_denoise_model: None,
+            upscale_model: None,
             foreground_model: None,
             clip_models: None,
             lama_model: None,
@@ -1318,29 +1404,37 @@ fn reflect_coord(c: isize, len: usize) -> usize {
 }
 
 /// Tile origins along one axis, in image coordinates. The image is treated as mirror-padded by
-/// RAWNIND_OVERLAP on both sides so every real pixel lies where some tile has full weight.
-fn rawnind_tile_starts(len: usize) -> Vec<isize> {
-    let last = (len + 2 * RAWNIND_OVERLAP).saturating_sub(RAWNIND_TILE);
+/// `overlap` on both sides so every real pixel lies where some tile has full weight.
+fn tile_starts(len: usize, tile: usize, overlap: usize) -> Vec<isize> {
+    let last = (len + 2 * overlap).saturating_sub(tile);
     let mut starts = Vec::new();
     let mut s = 0;
     loop {
         let c = s.min(last);
-        starts.push(c as isize - RAWNIND_OVERLAP as isize);
+        starts.push(c as isize - overlap as isize);
         if c == last {
             return starts;
         }
-        s += RAWNIND_TILE - RAWNIND_OVERLAP;
+        s += tile - overlap;
     }
 }
 
-/// Feathering weight across a tile: zero in the outer RAWNIND_BORDER pixels (CNN edge effects),
-/// then a linear ramp over the rest of the overlap, so adjacent tiles' weights sum to one.
-fn rawnind_tile_weight(u: usize) -> f32 {
-    let ramp = (RAWNIND_OVERLAP - 2 * RAWNIND_BORDER) as f32;
+/// Feathering weight across a tile: zero in the outer `border` pixels (CNN edge effects), then a
+/// linear ramp over the rest of the overlap, so adjacent tiles' weights sum to one.
+fn tile_weight(u: usize, tile: usize, overlap: usize, border: usize) -> f32 {
+    let ramp = (overlap - 2 * border) as f32;
     let u = u as f32 + 0.5;
-    let rise = (u - RAWNIND_BORDER as f32) / ramp;
-    let fall = ((RAWNIND_TILE - RAWNIND_BORDER) as f32 - u) / ramp;
+    let rise = (u - border as f32) / ramp;
+    let fall = ((tile - border) as f32 - u) / ramp;
     rise.min(fall).clamp(0.0, 1.0)
+}
+
+fn rawnind_tile_starts(len: usize) -> Vec<isize> {
+    tile_starts(len, RAWNIND_TILE, RAWNIND_OVERLAP)
+}
+
+fn rawnind_tile_weight(u: usize) -> f32 {
+    tile_weight(u, RAWNIND_TILE, RAWNIND_OVERLAP, RAWNIND_BORDER)
 }
 
 /// RawNIND denoise of a demosaiced raw image: linear, Rec.709 primaries, white balanced, white
@@ -1459,6 +1553,177 @@ pub fn run_rawnind_denoise(
         });
     progress(1.0);
     Ok(out_img)
+}
+
+/// Catmull-Rom 2x upsampling of one planar channel (half-pixel centres, edges clamped). Output
+/// pixel 2i sits at input i - 1/4 and 2i + 1 at i + 1/4, so both use fixed four-tap weights.
+fn bicubic_2x(src: &[f32], w: usize, h: usize, dst: &mut [f32]) {
+    const NEAR: [f32; 4] = [-0.023_437_5, 0.226_562_5, 0.867_187_5, -0.070_312_5];
+    let tap = |p: &dyn Fn(isize) -> f32, i: isize, odd: bool| {
+        if odd {
+            NEAR[3] * p(i - 1) + NEAR[2] * p(i) + NEAR[1] * p(i + 1) + NEAR[0] * p(i + 2)
+        } else {
+            NEAR[0] * p(i - 2) + NEAR[1] * p(i - 1) + NEAR[2] * p(i) + NEAR[3] * p(i + 1)
+        }
+    };
+    let mut rows = vec![0.0f32; h * 2 * w];
+    rows.par_chunks_mut(2 * w).enumerate().for_each(|(y, out)| {
+        let row = &src[y * w..(y + 1) * w];
+        let p = |x: isize| row[x.clamp(0, w as isize - 1) as usize];
+        for (x2, o) in out.iter_mut().enumerate() {
+            *o = tap(&p, (x2 / 2) as isize, x2 % 2 == 1);
+        }
+    });
+    dst.par_chunks_mut(2 * w).enumerate().for_each(|(y2, out)| {
+        for (x, o) in out.iter_mut().enumerate() {
+            let p = |y: isize| rows[y.clamp(0, h as isize - 1) as usize * 2 * w + x];
+            *o = tap(&p, (y2 / 2) as isize, y2 % 2 == 1);
+        }
+    });
+}
+
+/// Sum of the feathering weights of every tile covering each output pixel along one axis.
+/// Tiles form a grid and weights are separable, so the 2-D sum is row_sum[y] * col_sum[x].
+fn tile_weight_sums(starts: &[isize], len: usize, weights: &[f32], scale: usize) -> Vec<f32> {
+    let mut sums = vec![0.0f32; len];
+    for &s in starts {
+        let s = s * scale as isize;
+        for (u, &wgt) in weights.iter().enumerate() {
+            let p = s + u as isize;
+            if p >= 0 && (p as usize) < len {
+                sums[p as usize] += wgt;
+            }
+        }
+    }
+    sums
+}
+
+/// 2x AI super-resolution of a display-referred sRGB image (values clamped to [0, 1]).
+/// `strength` blends from plain bicubic (0) to the full model output (1). `progress` gets the
+/// fraction of tiles done before each tile and returns false to abort.
+pub fn run_ai_upscale(
+    rgb_img: &Rgb32FImage,
+    strength: f32,
+    session: &Mutex<Session>,
+    progress: impl Fn(f32) -> bool,
+) -> Result<Rgb32FImage> {
+    const T: usize = UPSCALE_TILE;
+    const S: usize = 2;
+    const TO: usize = T * S;
+    let (w, h) = (rgb_img.width() as usize, rgb_img.height() as usize);
+    let (ow, oh) = (w * S, h * S);
+    let src = rgb_img.as_raw();
+    let strength = strength.clamp(0.0, 1.0);
+    let xs = tile_starts(w, T, UPSCALE_OVERLAP);
+    let ys = tile_starts(h, T, UPSCALE_OVERLAP);
+    // Feathering happens at output resolution: every distance doubles.
+    let weights: Vec<f32> = (0..TO)
+        .map(|u| tile_weight(u, TO, S * UPSCALE_OVERLAP, S * UPSCALE_BORDER))
+        .collect();
+    let col_sums = tile_weight_sums(&xs, ow, &weights, S);
+    let row_sums = tile_weight_sums(&ys, oh, &weights, S);
+
+    let mut acc = vec![0.0f32; ow * oh * 3];
+    let mut tile_in = vec![0.0f32; 3 * T * T];
+    let mut bicubic = vec![0.0f32; if strength < 1.0 { 3 * TO * TO } else { 0 }];
+    let total = xs.len() * ys.len();
+
+    for (iy, &y0) in ys.iter().enumerate() {
+        for (ix, &x0) in xs.iter().enumerate() {
+            if !progress((iy * xs.len() + ix) as f32 / total as f32) {
+                return Err(anyhow::anyhow!("Upscaling cancelled"));
+            }
+
+            let (r, rest) = tile_in.split_at_mut(T * T);
+            let (g, b) = rest.split_at_mut(T * T);
+            r.par_chunks_mut(T)
+                .zip(g.par_chunks_mut(T))
+                .zip(b.par_chunks_mut(T))
+                .enumerate()
+                .for_each(|(dy, ((r, g), b))| {
+                    let sy = reflect_coord(y0 + dy as isize, h);
+                    let row = &src[sy * w * 3..(sy + 1) * w * 3];
+                    for dx in 0..T {
+                        let sx = reflect_coord(x0 + dx as isize, w);
+                        r[dx] = row[sx * 3].clamp(0.0, 1.0);
+                        g[dx] = row[sx * 3 + 1].clamp(0.0, 1.0);
+                        b[dx] = row[sx * 3 + 2].clamp(0.0, 1.0);
+                    }
+                });
+            if strength < 1.0 {
+                for c in 0..3 {
+                    bicubic_2x(
+                        &tile_in[c * T * T..(c + 1) * T * T],
+                        T,
+                        T,
+                        &mut bicubic[c * TO * TO..(c + 1) * TO * TO],
+                    );
+                }
+            }
+
+            let input = Array4::from_shape_vec((1, 3, T, T), tile_in.clone())?;
+            let mut sess = session.lock().unwrap();
+            let outputs = sess.run(ort::inputs![Tensor::from_array(input)?])?;
+            let out = outputs[0].try_extract_array::<f32>()?;
+            let out = out
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("Upscale output is not contiguous"))?;
+            if out.len() != 3 * TO * TO {
+                return Err(anyhow::anyhow!(
+                    "Unexpected upscale output size {}",
+                    out.len()
+                ));
+            }
+
+            let (oy0, ox0) = (y0 * S as isize, x0 * S as isize);
+            let y_lo = oy0.max(0) as usize;
+            let y_hi = ((oy0 + TO as isize) as usize).min(oh);
+            let x_lo = ox0.max(0) as usize;
+            let x_hi = ((ox0 + TO as isize) as usize).min(ow);
+            let bicubic = &bicubic;
+            acc.par_chunks_mut(ow * 3)
+                .enumerate()
+                .skip(y_lo)
+                .take(y_hi - y_lo)
+                .for_each(|(y, acc_row)| {
+                    let dy = (y as isize - oy0) as usize;
+                    for x in x_lo..x_hi {
+                        let dx = (x as isize - ox0) as usize;
+                        let wgt = weights[dy] * weights[dx];
+                        if wgt == 0.0 {
+                            continue;
+                        }
+                        let t = dy * TO + dx;
+                        for c in 0..3 {
+                            let i = c * TO * TO + t;
+                            let v = if strength < 1.0 {
+                                bicubic[i] + strength * (out[i] - bicubic[i])
+                            } else {
+                                out[i]
+                            };
+                            acc_row[x * 3 + c] += wgt * v;
+                        }
+                    }
+                });
+        }
+    }
+
+    acc.par_chunks_mut(ow * 3)
+        .zip(row_sums.par_iter())
+        .for_each(|(row, &ry)| {
+            for (x, px) in row.chunks_mut(3).enumerate() {
+                let wsum = ry * col_sums[x];
+                for v in px {
+                    *v = if wsum > 0.0 {
+                        (*v / wsum).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                }
+            }
+        });
+    Rgb32FImage::from_raw(ow as u32, oh as u32, acc)
+        .ok_or_else(|| anyhow::anyhow!("Failed to build upscaled image"))
 }
 
 pub fn run_lama_inpainting(

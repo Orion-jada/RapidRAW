@@ -924,9 +924,15 @@
       "failed": "Export failed",
       "noImageSelected": "No image selected for export.",
       "noImagesSelected": "No images selected.",
-      "success": "Export successful!"
+      "success": "Export successful!",
+      "upscalingProgress": "Upscaling… {{percent}}%"
     },
     "title": "Export",
+    "upscale": {
+      "aiUpscale": "AI Upscale (2×)",
+      "hint": "Doubles width and height after your edits and crop, before any resize. Takes about a minute per 24 MP photo.",
+      "strength": "Strength"
+    },
     "watermark": {
       "addWatermark": "Add Watermark",
       "anchors": {
@@ -1958,6 +1964,7 @@
         "negpy": "For the inspiration behind the negative conversion logic.",
         "nind": "For providing AI models that power the AI noise reduction capabilities in RapidRAW.",
         "rawler": "For the excellent Rust crate that provides the foundation for RAW file processing in this project.",
+        "realplksr": "For the super-resolution model that powers AI upscaling on export.",
         "sam2": "For providing the foundation model used for the AI subject detection capabilities.",
         "spektrafilm": "For the spectrally-based film emulation LUTs by Andrea Volpato, used to power RapidRAW's built-in film emulations. Licensed CC BY-SA 4.0.",
         "u2net": "For providing the robust architecture used for the AI sky detection capabilities.",

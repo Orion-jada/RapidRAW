@@ -923,9 +923,15 @@
       "failed": "Export se nezdařil",
       "noImageSelected": "Pro export nebyl vybrán žádný snímek.",
       "noImagesSelected": "Nejsou vybrány žádné snímky.",
-      "success": "Export byl úspěšný!"
+      "success": "Export byl úspěšný!",
+      "upscalingProgress": "Zvětšování… {{percent}} %"
     },
     "title": "Export",
+    "upscale": {
+      "aiUpscale": "AI zvětšení (2×)",
+      "hint": "Zdvojnásobí šířku a výšku po úpravách a oříznutí, před změnou velikosti. Trvá asi minutu na 24MP fotografii.",
+      "strength": "Síla"
+    },
     "watermark": {
       "addWatermark": "Přidat vodoznak",
       "anchors": {
@@ -1957,6 +1963,7 @@
         "negpy": "Pro inspiraci negativní konverzní logiky.",
         "nind": "Za poskytování modelů AI, které pohánějí funkce redukce šumu AI v RapidRAW.",
         "rawler": "Za vynikající přepravku Rust, která poskytuje základ pro zpracování souborů RAW v tomto projektu.",
+        "realplksr": "Za model superrozlišení, který pohání AI zvětšení při exportu.",
         "sam2": "Za poskytnutí základního modelu používaného pro schopnosti detekce předmětů AI.",
         "spektrafilm": "Pro spektrálně založené filmové emulační LUT od Andrey Volpata, použité pro vestavěné filmové emulace v RapidRAW. Licence CC BY-SA 4.0.",
         "u2net": "Pro zajištění robustní architektury používané pro schopnosti detekce oblohy AI.",

@@ -934,6 +934,9 @@ rapidraw export /path/to/photo.raw --output /path/to/output.tiff --format tiff -
 
 # Batch export a folder using a custom adjustments JSON file to override sidecars
 rapidraw export /path/to/photos --output /path/to/output_dir --adjustments /path/to/preset.json
+
+# Export at twice the width and height with AI super-resolution (strength 0-100)
+rapidraw export /path/to/photo.raw --output /path/to/output.tiff --format tiff --ai-upscale 60
 ```
 
 > **Note:** By default, headless export automatically detects and applies edits stored in `.rrdata` sidecar files located alongside your source images. You can override sidecars for all exported images by passing a custom JSON file using the `--adjustments` flag.
@@ -947,6 +950,7 @@ rapidraw export /path/to/photos --output /path/to/output_dir --adjustments /path
 | `--tiff-bit-depth <n>` | TIFF channel depth (`8` or `16`)                                       | `16`              |
 | `--keep-metadata`      | Retain EXIF/capture metadata in exported files                         | `false`           |
 | `--adjustments <path>` | Path to a custom JSON file containing adjustments to override sidecars | _(Auto-detected)_ |
+| `--ai-upscale <0-100>` | Upscale 2x with AI after edits and crop, at this strength              | _(Off)_           |
 
 ## Companion Apps & Ecosystem
 
@@ -1029,6 +1033,7 @@ A huge thank you to the following projects and tools that were very important in
 - **[BiRefNet](https://github.com/ZhengPeng7/BiRefNet):** For the high-accuracy segmentation model that powers the AI foreground detection capabilities.
 - **[Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2):** For the powerful monocular depth estimation model that enables the AI depth masking capabilities.
 - **[nind-denoise](https://github.com/trougnouf/nind-denoise) / [RawNIND](https://github.com/trougnouf/rawnind_jddc):** For providing AI models that power the AI noise reduction capabilities in RapidRAW (RawNIND for RAW files, via [darktable-ai](https://github.com/darktable-org/darktable-ai)'s ONNX export).
+- **[2xPublic RealPLKSR](https://github.com/Phhofm/models):** For Philip Hofmann's Apache-2.0 super-resolution model that powers AI upscaling on export.
 - **[NegPy](https://github.com/marcinz606/NegPy):** For the inspiration behind the negative conversion logic, particularly the mathematical approach to film inversion using characteristic curves.
 - **[pixls.us](https://discuss.pixls.us/):** For being an incredible community full of knowledgeable people who offered inspiration, advice, and ideas.
 - **[darktable & co.](https://github.com/darktable-org/darktable):** For some reference implementations that guided parts of this work.

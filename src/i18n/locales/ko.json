@@ -922,9 +922,15 @@
       "failed": "내보내기 실패",
       "noImageSelected": "내보낼 이미지가 선택되지 않았습니다.",
       "noImagesSelected": "선택된 이미지가 없습니다.",
-      "success": "내보내기 성공!"
+      "success": "내보내기 성공!",
+      "upscalingProgress": "업스케일링 중… {{percent}}%"
     },
     "title": "내보내기",
+    "upscale": {
+      "aiUpscale": "AI 업스케일 (2×)",
+      "hint": "편집과 자르기 후, 크기 조정 전에 너비와 높이를 두 배로 늘립니다. 2400만 화소 사진 한 장에 약 1분이 걸립니다.",
+      "strength": "강도"
+    },
     "watermark": {
       "addWatermark": "워터마크 추가",
       "anchors": {
@@ -1956,6 +1962,7 @@
         "negpy": "네거티브 변환 로직에 영감을 주었습니다.",
         "nind": "RapidRAW의 AI 노이즈 감소 기능을 구동하는 AI 모델을 제공해 주었습니다.",
         "rawler": "이 프로젝트의 RAW 파일 처리 기반이 되는 훌륭한 Rust 크레이트를 제공해 주었습니다.",
+        "realplksr": "내보내기 시 AI 업스케일을 구동하는 초해상도 모델을 제공해 주셔서 감사합니다.",
         "sam2": "AI 피사체 감지 기능에 사용되는 파운데이션 모델을 제공해 주었습니다.",
         "spektrafilm": "RapidRAW의 내장 필름 에뮬레이션을 구동하는, Andrea Volpato의 스펙트럼 기반 필름 에뮬레이션 LUT를 제공해 주셔서. CC BY-SA 4.0 라이선스입니다.",
         "u2net": "AI 하늘 감지 기능에 사용되는 견고한 아키텍처를 제공해 주었습니다.",

@@ -918,9 +918,15 @@
       "failed": "Export mislukt",
       "noImageSelected": "Geen afbeelding geselecteerd voor export.",
       "noImagesSelected": "Geen afbeeldingen geselecteerd.",
-      "success": "Export geslaagd!"
+      "success": "Export geslaagd!",
+      "upscalingProgress": "Opschalen… {{percent}}%"
     },
     "title": "Exporteren",
+    "upscale": {
+      "aiUpscale": "AI-opschaling (2×)",
+      "hint": "Verdubbelt breedte en hoogte na je bewerkingen en uitsnede, vóór het wijzigen van de grootte. Duurt ongeveer een minuut per foto van 24 MP.",
+      "strength": "Sterkte"
+    },
     "watermark": {
       "addWatermark": "Watermerk toevoegen",
       "anchors": {
@@ -1931,6 +1937,7 @@
         "negpy": "Voor de inspiratie achter de negatief-omzetlogica.",
         "nind": "Voor het leveren van AI-modellen die de AI-ruisonderdrukkingmogelijkheden in RapidRAW aandrijven.",
         "rawler": "Voor de uitstekende Rust-crate die de basis vormt voor RAW-bestandsverwerking in dit project.",
+        "realplksr": "Voor het superresolutiemodel achter AI-opschaling bij het exporteren.",
         "sam2": "Voor het leveren van het basismodel dat wordt gebruikt voor de AI-onderwerpdetectiemogelijkheden.",
         "spektrafilm": "Voor de spectraalgebaseerde filmemulatie-LUT's door Andrea Volpato, gebruikt voor de ingebouwde filmemulaties van RapidRAW. Gelicenseerd onder CC BY-SA 4.0.",
         "u2net": "Voor het leveren van de robuuste architectuur die wordt gebruikt voor de AI-luchtdetectiemogelijkheden.",

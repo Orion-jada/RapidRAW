@@ -924,9 +924,15 @@
       "failed": "Export fehlgeschlagen",
       "noImageSelected": "Kein Bild zum Exportieren ausgewählt.",
       "noImagesSelected": "Keine Bilder ausgewählt.",
-      "success": "Export erfolgreich!"
+      "success": "Export erfolgreich!",
+      "upscalingProgress": "Wird hochskaliert… {{percent}} %"
     },
     "title": "Export",
+    "upscale": {
+      "aiUpscale": "KI-Hochskalierung (2×)",
+      "hint": "Verdoppelt Breite und Höhe nach deinen Bearbeitungen und dem Zuschnitt, vor jeder Größenänderung. Dauert etwa eine Minute pro 24-MP-Foto.",
+      "strength": "Stärke"
+    },
     "watermark": {
       "addWatermark": "Wasserzeichen hinzufügen",
       "anchors": {
@@ -1958,6 +1964,7 @@
         "negpy": "Für die Inspiration hinter der Negativumwandlungslogik.",
         "nind": "Für die Bereitstellung von KI-Modellen für die Rauschreduzierung.",
         "rawler": "Für die hervorragende Rust-Crate zur RAW-Bildverarbeitung.",
+        "realplksr": "Für das Super-Resolution-Modell hinter der KI-Hochskalierung beim Export.",
         "sam2": "Für das grundlegende Modell der KI-Motiverkennung.",
         "spektrafilm": "Für die spektralbasierten Filmemulations-LUTs von Andrea Volpato, die RapidRAWs integrierte Filmemulationen ermöglichen. Lizenziert unter CC BY-SA 4.0.",
         "u2net": "Für die Architektur zur Erkennung des Himmels.",

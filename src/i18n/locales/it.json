@@ -949,9 +949,15 @@
       "failed": "Esportazione fallita",
       "noImageSelected": "Nessuna immagine selezionata per l'esportazione.",
       "noImagesSelected": "Nessuna immagine selezionata.",
-      "success": "Esportazione completata con successo!"
+      "success": "Esportazione completata con successo!",
+      "upscalingProgress": "Ingrandimento… {{percent}}%"
     },
     "title": "Esporta",
+    "upscale": {
+      "aiUpscale": "Ingrandimento IA (2×)",
+      "hint": "Raddoppia larghezza e altezza dopo le modifiche e il ritaglio, prima di qualsiasi ridimensionamento. Richiede circa un minuto per foto da 24 MP.",
+      "strength": "Intensità"
+    },
     "watermark": {
       "addWatermark": "Aggiungi Filigrana",
       "anchors": {
@@ -1996,6 +2002,7 @@
         "negpy": "Per l'ispirazione dietro alla logica di conversione dei negativi.",
         "nind": "Per aver fornito i modelli AI che alimentano le capacità di riduzione del rumore AI in RapidRAW.",
         "rawler": "Per l'eccellente crate Rust che fornisce le basi per l'elaborazione dei file RAW in questo progetto.",
+        "realplksr": "Per il modello di super-risoluzione che alimenta l'ingrandimento IA in esportazione.",
         "sam2": "Per aver fornito il modello fondamentale usato per le funzionalità di rilevamento del soggetto tramite AI.",
         "spektrafilm": "Per le LUT di emulazione pellicola su base spettrale di Andrea Volpato, che alimentano le emulazioni integrate di RapidRAW. Concesse in licenza CC BY-SA 4.0.",
         "u2net": "Per aver fornito la robusta architettura usata per le funzionalità di rilevamento AI del cielo.",

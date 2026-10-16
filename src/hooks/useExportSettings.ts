@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   BorderBasis,
+  DEFAULT_AI_UPSCALE_STRENGTH,
   DEFAULT_EXPORT_DPI,
   ExportPreset,
   TiffBitDepth,
@@ -39,6 +40,8 @@ export function useExportSettings() {
   const [watermarkOpacity, setWatermarkOpacity] = useState(75);
   const [destinationType, setDestinationType] = useState<string>('customFolder');
   const [subfolder, setSubfolder] = useState<string>('');
+  const [enableAiUpscale, setEnableAiUpscale] = useState(false);
+  const [aiUpscaleStrength, setAiUpscaleStrength] = useState(DEFAULT_AI_UPSCALE_STRENGTH);
 
   const handleApplyPreset = useCallback((preset: ExportPreset) => {
     setFileFormat(preset.fileFormat);
@@ -72,6 +75,8 @@ export function useExportSettings() {
     setWatermarkOpacity(preset.watermarkOpacity);
     setDestinationType(preset.destinationType || 'customFolder');
     setSubfolder(preset.subfolder || '');
+    setEnableAiUpscale(preset.enableAiUpscale ?? false);
+    setAiUpscaleStrength(preset.aiUpscaleStrength ?? DEFAULT_AI_UPSCALE_STRENGTH);
   }, []);
 
   const currentSettingsObject = useMemo(
@@ -107,6 +112,8 @@ export function useExportSettings() {
       watermarkOpacity,
       destinationType,
       subfolder,
+      enableAiUpscale,
+      aiUpscaleStrength,
     }),
     [
       fileFormat,
@@ -140,6 +147,8 @@ export function useExportSettings() {
       watermarkOpacity,
       destinationType,
       subfolder,
+      enableAiUpscale,
+      aiUpscaleStrength,
     ],
   );
 
@@ -206,6 +215,10 @@ export function useExportSettings() {
     setDestinationType,
     subfolder,
     setSubfolder,
+    enableAiUpscale,
+    setEnableAiUpscale,
+    aiUpscaleStrength,
+    setAiUpscaleStrength,
     handleApplyPreset,
     currentSettingsObject,
   };

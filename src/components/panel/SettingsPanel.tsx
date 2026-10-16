@@ -1925,6 +1925,17 @@ export default function SettingsPanel({
                       </li>
                       <li>
                         <a
+                          href="https://github.com/Phhofm/models"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-accent hover:underline"
+                        >
+                          2xPublic RealPLKSR
+                        </a>
+                        : {t('settings.thanks.list.realplksr')}
+                      </li>
+                      <li>
+                        <a
                           href="http://gphoto.org/"
                           target="_blank"
                           rel="noopener noreferrer"

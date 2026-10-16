@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { FileInput, CheckCircle, XCircle, Loader, Ban, ChevronDown, ChevronRight, Settings, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +14,7 @@ import ImagePicker from '../../ui/ImagePicker';
 import ColorField, { normalizeHexColor, ParsedTextField, useParsedTextField } from '../../ui/ColorField';
 import {
   BorderBasis,
+  DEFAULT_AI_UPSCALE_STRENGTH,
   ExportPreset,
   ExportSettings,
   FileFormat,
@@ -326,7 +328,14 @@ export default function ExportPanel({
     setDestinationType,
     subfolder,
     setSubfolder,
+    enableAiUpscale,
+    setEnableAiUpscale,
+    aiUpscaleStrength,
+    setAiUpscaleStrength,
   } = useExportSettings();
+  const isAiFree = appSettings?.aiProvider === 'ai-free';
+  const aiUpscaleSettings = enableAiUpscale && !isAiFree ? { strength: aiUpscaleStrength / 100 } : null;
+  const [upscaleProgress, setUpscaleProgress] = useState<number | null>(null);
 
   const adjustmentsRef = useRef(useEditorStore.getState().adjustments);
 
@@ -511,6 +520,7 @@ export default function ExportPanel({
       pad: padSettings,
       stripGps,
       exportMasks: exportMasks,
+      aiUpscale: aiUpscaleSettings,
       watermark:
         enableWatermark && watermarkPath
           ? {
@@ -575,6 +585,8 @@ export default function ExportPanel({
     exportMasks,
     preserveFolders,
     isLibraryContext,
+    enableAiUpscale,
+    isAiFree,
   ]);
 
   const handleVariableClick = (variable: string) => {
@@ -608,6 +620,7 @@ export default function ExportPanel({
       pad: padSettings,
       stripGps,
       exportMasks: exportMasks,
+      aiUpscale: aiUpscaleSettings,
       watermark:
         enableWatermark && watermarkPath
           ? {
@@ -696,6 +709,17 @@ export default function ExportPanel({
       });
     }
   };
+
+  useEffect(() => {
+    if (status !== Status.Exporting) {
+      setUpscaleProgress(null);
+      return;
+    }
+    const unlisten = listen<number>('export-upscale-progress', (event) => setUpscaleProgress(event.payload));
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [status]);
 
   const handleCancel = async () => {
     setExportState((current: ExportState) =>
@@ -841,6 +865,30 @@ export default function ExportPanel({
             {fileFormat !== FileFormats.Cube && (
               <>
                 <Section title={t('export.sections.imageSizing')}>
+                  <Switch
+                    label={t('export.upscale.aiUpscale')}
+                    checked={enableAiUpscale && !isAiFree}
+                    onChange={setEnableAiUpscale}
+                    disabled={isExporting || isAiFree}
+                    trackClassName="bg-surface"
+                  />
+                  {enableAiUpscale && !isAiFree && (
+                    <div className="space-y-2 pl-2 border-l-2 border-surface">
+                      <Slider
+                        defaultValue={DEFAULT_AI_UPSCALE_STRENGTH}
+                        label={t('export.upscale.strength')}
+                        max={100}
+                        min={0}
+                        onChange={(e) => setAiUpscaleStrength(Number(e.target.value))}
+                        step={1}
+                        value={aiUpscaleStrength}
+                        fillOrigin="min"
+                      />
+                      <Text variant={TextVariants.small} color={TextColors.secondary}>
+                        {t('export.upscale.hint')}
+                      </Text>
+                    </div>
+                  )}
                   <Switch
                     label={t('export.border.addBorder')}
                     checked={enableBorder}
@@ -1208,7 +1256,9 @@ export default function ExportPanel({
                   <Loader size={18} className="animate-spin mr-2" />
                   {progress.total > 1
                     ? t('export.status.exportingProgress', { current: progress.current, total: progress.total })
-                    : t('export.status.exporting')}
+                    : upscaleProgress !== null
+                      ? t('export.status.upscalingProgress', { percent: Math.round(upscaleProgress * 100) })
+                      : t('export.status.exporting')}
                 </span>
                 <span className="hidden items-center group-hover:flex">
                   <X size={18} className="mr-2" />

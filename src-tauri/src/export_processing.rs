@@ -127,6 +127,13 @@ pub struct PadOptions {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct AiUpscaleOptions {
+    /// 0 = plain bicubic, 1 = full model output.
+    pub strength: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportSettings {
     pub jpeg_quality: u8,
     #[serde(default)]
@@ -152,6 +159,8 @@ pub struct ExportSettings {
     pub subfolder: Option<String>,
     #[serde(default)]
     pub dpi: Option<u16>,
+    #[serde(default)]
+    pub ai_upscale: Option<AiUpscaleOptions>,
 }
 
 #[derive(Clone)]
@@ -534,7 +543,24 @@ fn compute_fused_geometry(
     }
 }
 
+// AI upscaling stops at a 2x output of this many pixels on the long edge or in total; larger
+// renders are exported at their own size.
+const AI_UPSCALE_MAX_OUTPUT_EDGE: u32 = 32_768;
+const AI_UPSCALE_MAX_OUTPUT_PIXELS: u64 = 300_000_000;
+
+fn ai_upscale_applies(src_w: u32, src_h: u32, settings: &ExportSettings) -> bool {
+    let (w, h) = (src_w as u64 * 2, src_h as u64 * 2);
+    settings.ai_upscale.is_some()
+        && w.max(h) <= AI_UPSCALE_MAX_OUTPUT_EDGE as u64
+        && w * h <= AI_UPSCALE_MAX_OUTPUT_PIXELS
+}
+
 fn compute_export_output_size(src_w: u32, src_h: u32, settings: &ExportSettings) -> (u32, u32) {
+    let (src_w, src_h) = if ai_upscale_applies(src_w, src_h, settings) {
+        (src_w * 2, src_h * 2)
+    } else {
+        (src_w, src_h)
+    };
     match compute_export_geometry(src_w, src_h, settings) {
         Some(geometry) => (geometry.canvas_w, geometry.canvas_h),
         None => resize_target(src_w, src_h, settings.resize.as_ref()),
@@ -839,6 +865,92 @@ fn apply_export_geometry_and_watermark(
     Ok((image, geometry))
 }
 
+/// The model and context an export needs to run AI super-resolution.
+pub(crate) struct ExportUpscaler<'a> {
+    pub session: &'a Mutex<ort::session::Session>,
+    pub app_handle: &'a tauri::AppHandle,
+    pub cancellation_token: &'a AtomicBool,
+}
+
+/// The alpha channel of an image that has any transparency, as floats in [0, 1].
+fn non_opaque_alpha(image: &DynamicImage) -> Option<ImageBuffer<Luma<f32>, Vec<f32>>> {
+    let opaque = match image {
+        DynamicImage::ImageRgba8(img) => img.pixels().all(|p| p[3] == u8::MAX),
+        DynamicImage::ImageRgba16(img) => img.pixels().all(|p| p[3] == u16::MAX),
+        DynamicImage::ImageRgba32F(img) => img.pixels().all(|p| p[3] >= 1.0),
+        _ => true,
+    };
+    if opaque {
+        return None;
+    }
+    let rgba = image.to_rgba32f();
+    Some(ImageBuffer::from_fn(rgba.width(), rgba.height(), |x, y| {
+        Luma([rgba.get_pixel(x, y)[3]])
+    }))
+}
+
+/// 2x AI super-resolution of a rendered export, done before resize, border and watermark so
+/// those work on the upscaled photo. Keeps the render's colour type; transparency is upsampled
+/// with plain bicubic.
+fn apply_ai_upscale(
+    image: DynamicImage,
+    export_settings: &ExportSettings,
+    upscaler: Option<&ExportUpscaler>,
+) -> Result<DynamicImage, String> {
+    let (Some(options), Some(upscaler)) = (&export_settings.ai_upscale, upscaler) else {
+        return Ok(image);
+    };
+    let (w, h) = image.dimensions();
+    if !ai_upscale_applies(w, h, export_settings) {
+        log::warn!(
+            "Skipping AI upscale: a 2x render of {}x{} is too large",
+            w,
+            h
+        );
+        return Ok(image);
+    }
+
+    let alpha = non_opaque_alpha(&image);
+    let upscaled = crate::ai_processing::run_ai_upscale(
+        &image.to_rgb32f(),
+        options.strength,
+        upscaler.session,
+        |done| {
+            let _ = upscaler.app_handle.emit("export-upscale-progress", done);
+            !upscaler.cancellation_token.load(Ordering::SeqCst)
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    let upscaled = DynamicImage::ImageRgb32F(upscaled);
+    let mut out = match image {
+        DynamicImage::ImageRgba8(_) => DynamicImage::ImageRgba8(upscaled.to_rgba8()),
+        DynamicImage::ImageRgba16(_) => DynamicImage::ImageRgba16(upscaled.to_rgba16()),
+        DynamicImage::ImageRgb8(_) => DynamicImage::ImageRgb8(upscaled.to_rgb8()),
+        DynamicImage::ImageRgb16(_) => DynamicImage::ImageRgb16(upscaled.to_rgb16()),
+        DynamicImage::ImageRgba32F(_) => DynamicImage::ImageRgba32F(upscaled.to_rgba32f()),
+        _ => upscaled,
+    };
+
+    if let Some(alpha) = alpha {
+        let alpha = imageops::resize(&alpha, w * 2, h * 2, imageops::FilterType::CatmullRom);
+        let a = alpha.pixels().map(|p| p[0].clamp(0.0, 1.0));
+        match &mut out {
+            DynamicImage::ImageRgba8(img) => img
+                .pixels_mut()
+                .zip(a)
+                .for_each(|(p, a)| p[3] = (a * 255.0).round() as u8),
+            DynamicImage::ImageRgba16(img) => img
+                .pixels_mut()
+                .zip(a)
+                .for_each(|(p, a)| p[3] = (a * 65535.0).round() as u16),
+            DynamicImage::ImageRgba32F(img) => img.pixels_mut().zip(a).for_each(|(p, a)| p[3] = a),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 fn ensure_export_not_cancelled(cancellation_token: &AtomicBool) -> Result<(), String> {
     if cancellation_token.load(Ordering::SeqCst) {
         Err("Export cancelled".to_string())
@@ -1124,6 +1236,7 @@ fn process_image_for_export(
     is_raw: bool,
     app_handle: &tauri::AppHandle,
     output_format: &str,
+    upscaler: Option<&ExportUpscaler>,
 ) -> Result<DynamicImage, String> {
     let processed_image = process_image_for_export_pipeline(
         path,
@@ -1136,6 +1249,7 @@ fn process_image_for_export(
         app_handle,
         render_output_precision(output_format, export_settings),
     )?;
+    let processed_image = apply_ai_upscale(processed_image, export_settings, upscaler)?;
 
     apply_export_geometry_and_watermark(processed_image, export_settings).map(|(image, _)| image)
 }
@@ -1327,6 +1441,7 @@ fn export_masks_for_image(
     is_raw: bool,
     app_handle: &tauri::AppHandle,
     cancellation_token: &AtomicBool,
+    upscaler: Option<&ExportUpscaler>,
 ) -> Result<(), String> {
     ensure_export_not_cancelled(cancellation_token)?;
     let (transformed_image, unscaled_crop_offset) =
@@ -1393,6 +1508,8 @@ fn export_masks_for_image(
                 "export_mask_image",
                 render_output_precision(extension, export_settings),
             )?;
+            ensure_export_not_cancelled(cancellation_token)?;
+            let processed = apply_ai_upscale(processed, export_settings, upscaler)?;
             ensure_export_not_cancelled(cancellation_token)?;
 
             let (with_options, geometry) =
@@ -1524,6 +1641,22 @@ pub(crate) async fn export_images_impl(
     app_handle: tauri::AppHandle,
     completion_tx: Option<tokio::sync::oneshot::Sender<Result<(), usize>>>,
 ) -> Result<(), String> {
+    // Load (and on first use download) the upscale model before the export task starts, so a
+    // failure is reported as a plain error instead of a half-started export.
+    let upscale_session = if export_settings.ai_upscale.is_some() && output_format != "cube" {
+        Some(
+            crate::ai_processing::get_or_init_upscale_model(
+                &app_handle,
+                &state.ai_state,
+                &state.ai_init_lock,
+            )
+            .await
+            .map_err(|e| format!("Failed to load the AI upscale model: {}", e))?,
+        )
+    } else {
+        None
+    };
+
     let cancellation_token = register_export_task(&state.export_task_token)?;
     let task_guard = ExportTaskGuard::with_app_handle(
         Arc::clone(&state.export_task_token),
@@ -1559,7 +1692,8 @@ pub(crate) async fn export_images_impl(
     let available_ram_gb = sys.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
     let ram_based_limit = (available_ram_gb / 4.0).floor() as usize;
 
-    let num_threads = if paths.len() == 1 {
+    // AI upscaling keeps the GPU busy on its own and needs a large buffer per image.
+    let num_threads = if paths.len() == 1 || upscale_session.is_some() {
         1
     } else {
         available_cores.min(ram_based_limit).clamp(1, 4)
@@ -1634,11 +1768,17 @@ pub(crate) async fn export_images_impl(
             let cancellation_token_clone = Arc::clone(&cancellation_token);
             let adjustments_mode = adjustments_mode.clone();
             let used_paths_clone = Arc::clone(&used_paths);
+            let upscale_session = upscale_session.clone();
 
             let handle = tokio::task::spawn_blocking(move || {
                 ensure_export_not_cancelled(&cancellation_token_clone)?;
 
                 let state = app_handle_clone.state::<AppState>();
+                let upscaler = upscale_session.as_deref().map(|session| ExportUpscaler {
+                    session,
+                    app_handle: &app_handle_clone,
+                    cancellation_token: &cancellation_token_clone,
+                });
                 let (source_path, sidecar_path) = parse_virtual_path(&image_path_str);
                 let source_path_str = source_path.to_string_lossy().to_string();
 
@@ -1860,6 +2000,7 @@ pub(crate) async fn export_images_impl(
                         is_raw,
                         &app_handle_clone,
                         actual_output_format,
+                        upscaler.as_ref(),
                     )?;
                     ensure_export_not_cancelled(&cancellation_token_clone)?;
                     save_image_with_metadata(
@@ -1889,6 +2030,7 @@ pub(crate) async fn export_images_impl(
                             is_raw,
                             &app_handle_clone,
                             &cancellation_token_clone,
+                            upscaler.as_ref(),
                         )?;
                     }
 
@@ -2069,6 +2211,9 @@ pub async fn run_headless_export(
         destination_type: None,
         subfolder: None,
         dpi: None,
+        ai_upscale: session
+            .ai_upscale
+            .map(|strength| AiUpscaleOptions { strength }),
     };
 
     let mut custom_adjustments = None;

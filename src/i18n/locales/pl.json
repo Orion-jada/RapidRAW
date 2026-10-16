@@ -970,9 +970,15 @@
       "failed": "Eksport nie powiódł się",
       "noImageSelected": "Brak wybranego obrazu do eksportu.",
       "noImagesSelected": "Nie wybrano obrazów.",
-      "success": "Eksport zakończony sukcesem!"
+      "success": "Eksport zakończony sukcesem!",
+      "upscalingProgress": "Powiększanie… {{percent}}%"
     },
     "title": "Eksport",
+    "upscale": {
+      "aiUpscale": "Powiększanie AI (2×)",
+      "hint": "Podwaja szerokość i wysokość po edycji i kadrowaniu, przed zmianą rozmiaru. Trwa około minuty na zdjęcie 24 MP.",
+      "strength": "Siła"
+    },
     "watermark": {
       "addWatermark": "Dodaj znak wodny",
       "anchors": {
@@ -2030,6 +2036,7 @@
         "negpy": "Za inspirację stojącą za rozwiązaniem do inwersji negatywów.",
         "nind": "Za dostarczenie modeli AI, które stanowią silnik odszumiający RapidRAW.",
         "rawler": "Za świetną bibliotekę w Rust, dostarczającą fundament dla przetwarzania plików RAW w tym projekcie.",
+        "realplksr": "Za model super-rozdzielczości, który napędza powiększanie AI podczas eksportu.",
         "sam2": "Za dostarczenie bazowego modelu do wykrywania i wycinania obiektów za pomocą AI.",
         "spektrafilm": "Za oparte na danych spektralnych LUT-y emulacji filmu autorstwa Andrei Volpato, napędzające wbudowane emulacje filmowe RapidRAW. Licencja CC BY-SA 4.0.",
         "u2net": "Za świetną architekturę używaną przez nasz model wykrywania nieba.",

@@ -922,9 +922,15 @@
       "failed": "导出失败",
       "noImageSelected": "未选择要导出的图像。",
       "noImagesSelected": "未选择图像。",
-      "success": "导出成功！"
+      "success": "导出成功！",
+      "upscalingProgress": "正在放大… {{percent}}%"
     },
     "title": "导出",
+    "upscale": {
+      "aiUpscale": "AI 放大 (2×)",
+      "hint": "在编辑和裁剪之后、调整尺寸之前，将宽度和高度加倍。每张 2400 万像素照片约需一分钟。",
+      "strength": "强度"
+    },
     "watermark": {
       "addWatermark": "添加水印",
       "anchors": {
@@ -1956,6 +1962,7 @@
         "negpy": "为负片转换逻辑提供了灵感。",
         "nind": "为 AI 模型提供支持，驱动了 RapidRAW 中的 AI 降噪功能。",
         "rawler": "为优秀的 Rust 库提供支持，构成了本项目 RAW 文件处理的基础。",
+        "realplksr": "感谢提供超分辨率模型，为导出时的 AI 放大提供支持。",
         "sam2": "为提供基础模型，用于 AI 主体检测功能。",
         "spektrafilm": "感谢 Andrea Volpato 提供基于光谱的胶片模拟 LUT，为 RapidRAW 的内置胶片模拟提供支持。采用 CC BY-SA 4.0 许可。",
         "u2net": "为提供稳健的架构，用于 AI 天空检测功能。",
