@@ -19,7 +19,7 @@
 
 > Orion-jada's version of [RapidRAW](https://github.com/CyberTimon/RapidRAW), Timon Käch's GPU-accelerated RAW editor, with faster and smarter AI tools tuned for Apple Silicon Macs.
 
-This is a fork. It keeps everything in the original RapidRAW and adds the upgrades listed below. Problems with these upgrades belong here, not in the original project's issue tracker.
+This is a fork. It keeps everything in the original RapidRAW, picks up the original's new changes every day, and adds the upgrades listed below. Problems with these upgrades belong here, not in the original project's issue tracker.
 
 <table width="100%">
   <tr>
@@ -73,6 +73,7 @@ This is a fork. It keeps everything in the original RapidRAW and adds the upgrad
 ### Housekeeping
 
 - **Updates come from this fork:** The "new version available" notice checks this repository, not the original, so it never points you to a version without these upgrades.
+- **Daily sync with the original:** A GitHub workflow merges new commits from the original RapidRAW once a day, whenever they merge cleanly and the app still builds.
 - **Old models cleaned up:** Models replaced by the ones above (SAM 1 and both U²-Net models) are deleted at startup, freeing about 460 MB plus their GPU caches.
 
 ## Download
@@ -81,7 +82,7 @@ This is a fork. It keeps everything in the original RapidRAW and adds the upgrad
 
 Needs a Mac with an M1 chip or newer, on macOS 13 (Ventura) or later.
 
-1. Download `RapidRAW_1.6.5_aarch64.dmg` from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
+1. Download the `.dmg` file (for example `RapidRAW_1.6.5_aarch64.dmg`) from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
 2. Open it and drag **RapidRAW** into **Applications**.
 3. Open RapidRAW. The app isn't notarized by Apple, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the RapidRAW message, then confirm.
 
