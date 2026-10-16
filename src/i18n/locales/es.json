@@ -646,6 +646,8 @@
         "resetMaskAdjustments": "Restablecer ajustes de máscara",
         "showComponent": "Mostrar componente",
         "showMask": "Mostrar máscara",
+        "subtractComponent": "Restar",
+        "subtractComponentTooltip": "Añade un componente que quita área de esta máscara",
         "subtractFromMask": "Restar de la máscara",
         "switchToAdd": "Cambiar a Añadir",
         "switchToIntersect": "Cambiar a Intersecar",

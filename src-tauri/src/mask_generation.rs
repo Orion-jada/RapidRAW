@@ -1350,26 +1350,19 @@ pub fn generate_mask_bitmap(
                 }
             }
 
-            match sub_mask.mode {
-                SubMaskMode::Additive => {
-                    for (x, y, pixel) in final_mask.enumerate_pixels_mut() {
-                        let sub_pixel = sub_bitmap.get_pixel(x, y);
-                        pixel[0] = pixel[0].max(sub_pixel[0]);
-                    }
-                }
+            let combine: fn(u8, u8) -> u8 = match sub_mask.mode {
+                SubMaskMode::Additive => |mask, sub| mask.max(sub),
+                // Scale by what the component leaves, rather than subtracting it outright, so a
+                // feathered subtraction fades soft edges (hair, gradients) instead of cutting them.
                 SubMaskMode::Subtractive => {
-                    for (x, y, pixel) in final_mask.enumerate_pixels_mut() {
-                        let sub_pixel = sub_bitmap.get_pixel(x, y);
-                        pixel[0] = pixel[0].saturating_sub(sub_pixel[0]);
-                    }
+                    |mask, sub| ((mask as u32 * (255 - sub) as u32 + 127) / 255) as u8
                 }
-                SubMaskMode::Intersect => {
-                    for (x, y, pixel) in final_mask.enumerate_pixels_mut() {
-                        let sub_pixel = sub_bitmap.get_pixel(x, y);
-                        pixel[0] = pixel[0].min(sub_pixel[0]);
-                    }
-                }
-            }
+                SubMaskMode::Intersect => |mask, sub| mask.min(sub),
+            };
+            final_mask
+                .par_iter_mut()
+                .zip(sub_bitmap.par_iter())
+                .for_each(|(mask, &sub)| *mask = combine(*mask, sub));
         }
     }
 

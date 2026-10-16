@@ -626,6 +626,8 @@
         "resetMaskAdjustments": "Maskenanpassungen zurücksetzen",
         "showComponent": "Komponente anzeigen",
         "showMask": "Maske anzeigen",
+        "subtractComponent": "Abziehen",
+        "subtractComponentTooltip": "Eine Komponente hinzufügen, die Bereiche von dieser Maske abzieht",
         "subtractFromMask": "Von Maske subtrahieren",
         "switchToAdd": "Zu Hinzufügen wechseln",
         "switchToIntersect": "Zu Schnittmenge wechseln",

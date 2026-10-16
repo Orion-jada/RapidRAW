@@ -624,6 +624,8 @@
         "resetMaskAdjustments": "重置蒙版调整",
         "showComponent": "显示组件",
         "showMask": "显示蒙版",
+        "subtractComponent": "减去",
+        "subtractComponentTooltip": "添加从此蒙版中减去区域的组件",
         "subtractFromMask": "从蒙版中减去",
         "switchToAdd": "切换到添加",
         "switchToIntersect": "切换到相交",

@@ -624,6 +624,8 @@
         "resetMaskAdjustments": "重置遮色片調整",
         "showComponent": "顯示元件",
         "showMask": "顯示遮色片",
+        "subtractComponent": "減去",
+        "subtractComponentTooltip": "新增從此遮罩中減去區域的元件",
         "subtractFromMask": "從遮色片中減去",
         "switchToAdd": "切換到新增",
         "switchToIntersect": "切換到相交",

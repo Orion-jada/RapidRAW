@@ -624,6 +624,8 @@
         "resetMaskAdjustments": "마스크 조정값 초기화",
         "showComponent": "구성 요소 표시",
         "showMask": "마스크 표시",
+        "subtractComponent": "빼기",
+        "subtractComponentTooltip": "이 마스크에서 영역을 빼는 구성 요소 추가",
         "subtractFromMask": "마스크에서 빼기",
         "switchToAdd": "추가 모드로 전환",
         "switchToIntersect": "교차 모드로 전환",

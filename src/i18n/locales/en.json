@@ -626,6 +626,8 @@
         "resetMaskAdjustments": "Reset Mask Adjustments",
         "showComponent": "Show Component",
         "showMask": "Show Mask",
+        "subtractComponent": "Subtract",
+        "subtractComponentTooltip": "Add a component that removes area from this mask",
         "subtractFromMask": "Subtract from Mask",
         "switchToAdd": "Switch to Add",
         "switchToIntersect": "Switch to Intersect",

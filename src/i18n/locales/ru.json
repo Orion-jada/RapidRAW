@@ -666,6 +666,8 @@
         "resetMaskAdjustments": "Сбросить настройки маски",
         "showComponent": "Показать компонент",
         "showMask": "Показать маску",
+        "subtractComponent": "Вычесть",
+        "subtractComponentTooltip": "Добавить компонент, который убирает область из этой маски",
         "subtractFromMask": "Вычесть из маски",
         "switchToAdd": "Переключить на добавление",
         "switchToIntersect": "Переключить на пересечение",

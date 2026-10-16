@@ -626,6 +626,8 @@
         "resetMaskAdjustments": "Restablir ajustaments de la màscara",
         "showComponent": "Mostrar component",
         "showMask": "Mostrar màscara",
+        "subtractComponent": "Restar",
+        "subtractComponentTooltip": "Afegeix un component que treu àrea d'aquesta màscara",
         "subtractFromMask": "Restar de la màscara",
         "switchToAdd": "Canviar a Afegir",
         "switchToIntersect": "Canviar a Intersecar",

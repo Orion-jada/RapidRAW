@@ -620,6 +620,8 @@
         "resetMaskAdjustments": "Maskeraanpassingen herstellen",
         "showComponent": "Component weergeven",
         "showMask": "Masker weergeven",
+        "subtractComponent": "Aftrekken",
+        "subtractComponentTooltip": "Een component toevoegen dat gebied van dit masker aftrekt",
         "subtractFromMask": "Aftrekken van masker",
         "switchToAdd": "Overschakelen naar toevoegen",
         "switchToIntersect": "Overschakelen naar snijden",

@@ -556,7 +556,11 @@ export default function MasksPanel() {
     handleGridClick(type, true);
   };
 
-  const handleAddMaskContextMenu = (event: React.MouseEvent, targetContainerId?: string | null) => {
+  const handleAddMaskContextMenu = (
+    event: React.MouseEvent,
+    targetContainerId?: string | null,
+    mode: SubMaskMode = SubMaskMode.Additive,
+  ) => {
     event.preventDefault();
     event.stopPropagation();
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -589,6 +593,8 @@ export default function MasksPanel() {
 
     if (!targetContainerId) {
       options = buildFlatMenu(SubMaskMode.Additive);
+    } else if (mode !== SubMaskMode.Additive) {
+      options = buildFlatMenu(mode);
     } else {
       options = buildFlatMenu(SubMaskMode.Additive);
 
@@ -1149,7 +1155,9 @@ export default function MasksPanel() {
                           copySubMaskToClipboard={copySubMaskToClipboard}
                           copiedSubMask={copiedSubMask}
                           setIsMaskControlHovered={setIsMaskControlHovered}
-                          onAddComponent={(e: React.MouseEvent) => handleAddMaskContextMenu(e, container.id)}
+                          onAddComponent={(e: React.MouseEvent, mode?: SubMaskMode) =>
+                            handleAddMaskContextMenu(e, container.id, mode)
+                          }
                         />
                       ))}
                     </AnimatePresence>
@@ -1625,20 +1633,37 @@ function ContainerRow({
                   exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
                   transition={{ duration: 0.2 }}
                 >
-                  <Text
-                    as="div"
-                    weight={TextWeights.medium}
-                    className="flex items-center gap-2 p-2 rounded-md transition-colors transition-opacity opacity-70 hover:opacity-100 hover:bg-card-active cursor-pointer hover:text-text-primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAddComponent(e);
-                    }}
-                  >
-                    <div className="relative w-4 h-4 ml-1 shrink-0 flex items-center justify-center">
-                      <Plus size={16} />
-                    </div>
-                    <span className="select-none">{t('editor.masks.actions.addNewComponent')}</span>
-                  </Text>
+                  <div className="flex items-center gap-1">
+                    <Text
+                      as="div"
+                      weight={TextWeights.medium}
+                      className="flex flex-1 min-w-0 items-center gap-2 p-2 rounded-md transition-colors transition-opacity opacity-70 hover:opacity-100 hover:bg-card-active cursor-pointer hover:text-text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAddComponent(e);
+                      }}
+                    >
+                      <div className="relative w-4 h-4 ml-1 shrink-0 flex items-center justify-center">
+                        <Plus size={16} />
+                      </div>
+                      <span className="select-none truncate">{t('editor.masks.actions.addNewComponent')}</span>
+                    </Text>
+                    {container.subMasks.length > 0 && (
+                      <Text
+                        as="div"
+                        weight={TextWeights.medium}
+                        className="flex shrink-0 items-center gap-1.5 p-2 rounded-md transition-colors transition-opacity opacity-70 hover:opacity-100 hover:bg-card-active cursor-pointer hover:text-rose-400"
+                        data-tooltip={t('editor.masks.actions.subtractComponentTooltip')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddComponent(e, SubMaskMode.Subtractive);
+                        }}
+                      >
+                        <Minus size={16} />
+                        <span className="select-none">{t('editor.masks.actions.subtractComponent')}</span>
+                      </Text>
+                    )}
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1753,6 +1778,44 @@ function SubMaskRow({
 
   const showNumber = isHovered && totalCount > 1;
 
+  const modeButton = (
+    <button
+      className={`p-1 hover:text-text-primary ${
+        subMask.mode === SubMaskMode.Subtractive
+          ? 'text-rose-400'
+          : subMask.mode === SubMaskMode.Intersect
+            ? 'text-purple-400'
+            : 'text-text-secondary'
+      }`}
+      data-tooltip={
+        subMask.mode === SubMaskMode.Additive
+          ? t('editor.masks.actions.switchToSubtract')
+          : subMask.mode === SubMaskMode.Subtractive
+            ? t('editor.masks.actions.switchToIntersect')
+            : t('editor.masks.actions.switchToAdd')
+      }
+      onClick={(e) => {
+        e.stopPropagation();
+        updateSubMask(subMask.id, {
+          mode:
+            subMask.mode === SubMaskMode.Additive
+              ? SubMaskMode.Subtractive
+              : subMask.mode === SubMaskMode.Subtractive
+                ? SubMaskMode.Intersect
+                : SubMaskMode.Additive,
+        });
+      }}
+    >
+      {subMask.mode === SubMaskMode.Additive ? (
+        <Plus size={16} />
+      ) : subMask.mode === SubMaskMode.Subtractive ? (
+        <Minus size={16} />
+      ) : (
+        <SquaresIntersect size={16} />
+      )}
+    </button>
+  );
+
   return (
     <motion.div
       layout="position"
@@ -1835,38 +1898,9 @@ function SubMaskRow({
           {getSubMaskName(subMask)}
         </Text>
       )}
+      {index > 1 && subMask.mode !== SubMaskMode.Additive && modeButton}
       <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-        {index > 1 && (
-          <button
-            className="p-1 hover:text-text-primary text-text-secondary"
-            data-tooltip={
-              subMask.mode === SubMaskMode.Additive
-                ? t('editor.masks.actions.switchToSubtract')
-                : subMask.mode === SubMaskMode.Subtractive
-                  ? t('editor.masks.actions.switchToIntersect')
-                  : t('editor.masks.actions.switchToAdd')
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              updateSubMask(subMask.id, {
-                mode:
-                  subMask.mode === SubMaskMode.Additive
-                    ? SubMaskMode.Subtractive
-                    : subMask.mode === SubMaskMode.Subtractive
-                      ? SubMaskMode.Intersect
-                      : SubMaskMode.Additive,
-              });
-            }}
-          >
-            {subMask.mode === SubMaskMode.Additive ? (
-              <Plus size={16} />
-            ) : subMask.mode === SubMaskMode.Subtractive ? (
-              <Minus size={16} />
-            ) : (
-              <SquaresIntersect size={16} />
-            )}
-          </button>
-        )}
+        {index > 1 && subMask.mode === SubMaskMode.Additive && modeButton}
         <button
           className="p-1 hover:text-text-primary text-text-secondary"
           data-tooltip={

@@ -625,6 +625,8 @@
         "resetMaskAdjustments": "Resetovat nastavení masky",
         "showComponent": "Zobrazit komponentu",
         "showMask": "Zobrazit masku",
+        "subtractComponent": "Odečíst",
+        "subtractComponentTooltip": "Přidat komponentu, která z této masky odebírá oblast",
         "subtractFromMask": "Odečíst od masky",
         "switchToAdd": "Přepnout na přidání",
         "switchToIntersect": "Přepnout na průnik",

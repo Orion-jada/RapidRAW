@@ -624,6 +624,8 @@
         "resetMaskAdjustments": "マスク補正設定をリセット",
         "showComponent": "コンポーネントを表示",
         "showMask": "マスクを表示",
+        "subtractComponent": "減算",
+        "subtractComponentTooltip": "このマスクから範囲を取り除くコンポーネントを追加",
         "subtractFromMask": "マスクから減算",
         "switchToAdd": "追加に切り替え",
         "switchToIntersect": "交差に切り替え",

@@ -646,6 +646,8 @@
         "resetMaskAdjustments": "Réinitialiser les ajustements du masque",
         "showComponent": "Afficher le composant",
         "showMask": "Afficher le masque",
+        "subtractComponent": "Soustraire",
+        "subtractComponentTooltip": "Ajouter un composant qui retire une zone de ce masque",
         "subtractFromMask": "Soustraire du masque",
         "switchToAdd": "Basculer sur Ajouter",
         "switchToIntersect": "Basculer sur Intersecter",
