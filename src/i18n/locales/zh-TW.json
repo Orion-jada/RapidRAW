@@ -671,6 +671,10 @@
         "maskName_one": "遮色片 {{count}}",
         "maskName_other": "遮色片 {{count}}"
       },
+      "polygon": {
+        "drawHint": "按一下以新增點。按一下第一個點、按兩下或按 Enter 鍵完成。按 Backspace 鍵刪除最後一個點。",
+        "editHint": "拖曳點以調整形狀。拖曳中間的控點可新增點，按兩下點可將其刪除。"
+      },
       "rangeTitle": "範圍與全域",
       "resetMaskingTooltip": "重置遮色片",
       "settings": {
@@ -1233,6 +1237,7 @@
       "liquify": "液化",
       "luminance": "亮度",
       "others": "其他",
+      "polygon": "多邊形",
       "quickErase": "快速擦除",
       "quickEraser": "快速橡皮擦",
       "radial": "徑向",

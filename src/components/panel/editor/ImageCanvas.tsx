@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import ReactCrop from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Stage, Layer, Ellipse, Line, Transformer, Group, Circle, Rect, Arrow } from 'react-konva';
+import type { KonvaEventObject } from 'konva/lib/Node';
 import { PercentCrop, Crop } from 'react-image-crop';
 import { Stamp, Bandage, Spline, BrushCleaning } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
@@ -123,6 +124,8 @@ const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 const WB_SAMPLE_SCREEN_SIZE = 16;
 const WB_DRAG_THRESHOLD = 4;
+// Screen pixels: a click this close to the first point of a polygon being drawn closes it.
+const POLYGON_CLOSE_DISTANCE = 12;
 const WB_SWATCH_OFFSET = 18;
 
 interface WbSample {
@@ -908,6 +911,84 @@ const MaskOverlay = memo(
       [subMask.id, onMaskInteractionEnd, onUpdate],
     );
 
+    const polygonDragIndex = useRef<number | null>(null);
+
+    const commitPolygonPoints = useCallback(
+      (points: Coord[]) => {
+        const newP = { ...pRef.current, points };
+        updateP(newP);
+        if (onPreviewUpdate) onPreviewUpdate(subMask.id, { parameters: newP });
+        onUpdate(subMask.id, { parameters: newP });
+      },
+      [updateP, onPreviewUpdate, onUpdate, subMask.id],
+    );
+
+    // Dragging a midpoint handle (insert = true) first adds a vertex there, then drags it.
+    const handlePolygonVertexDragStart = useCallback(
+      (e: KonvaEventObject<DragEvent>, index: number, insert: boolean) => {
+        if (e.evt && typeof e.evt.button === 'number' && e.evt.button !== 0) return;
+        isDragging.current = true;
+        onMaskInteractionStart(e);
+        e.cancelBubble = true;
+        if (!insert) {
+          polygonDragIndex.current = index;
+          return;
+        }
+        const points: Coord[] = [...(pRef.current.points || [])];
+        const a = points[index];
+        const b = points[(index + 1) % points.length];
+        points.splice(index + 1, 0, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+        polygonDragIndex.current = index + 1;
+        commitPolygonPoints(points);
+      },
+      [onMaskInteractionStart, commitPolygonPoints],
+    );
+
+    const handlePolygonVertexDragMove = useCallback(
+      (e: KonvaEventObject<DragEvent>) => {
+        const index = polygonDragIndex.current;
+        const pointer = getPointer(e.target.getStage());
+        if (index === null || !pointer) return;
+        const points: Coord[] = [...(pRef.current.points || [])];
+        points[index] = { x: pointer.x / scale + cropX, y: pointer.y / scale + cropY };
+        commitPolygonPoints(points);
+      },
+      [getPointer, scale, cropX, cropY, commitPolygonPoints],
+    );
+
+    const handlePolygonVertexDragEnd = useCallback(
+      (e: KonvaEventObject<DragEvent>) => {
+        polygonDragIndex.current = null;
+        isDragging.current = false;
+        e.cancelBubble = true;
+        onMaskInteractionEnd();
+        onUpdate(subMask.id, { parameters: pRef.current });
+      },
+      [onMaskInteractionEnd, onUpdate, subMask.id],
+    );
+
+    const handlePolygonVertexRemove = useCallback(
+      (e: KonvaEventObject<Event>, index: number) => {
+        e.cancelBubble = true;
+        const points: Coord[] = pRef.current.points || [];
+        if (points.length <= 3) return;
+        commitPolygonPoints(points.filter((_, i) => i !== index));
+      },
+      [commitPolygonPoints],
+    );
+
+    const handlePolygonDragMove = useCallback(
+      (e: KonvaEventObject<DragEvent>) => {
+        const pointerPos = getPointer(e.target.getStage());
+        if (!pointerPos || !dragStartPointer.current || !dragStartParams.current) return;
+        const dx = (pointerPos.x - dragStartPointer.current.x) / scale;
+        const dy = (pointerPos.y - dragStartPointer.current.y) / scale;
+        const startPoints: Coord[] = dragStartParams.current.points || [];
+        commitPolygonPoints(startPoints.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })));
+      },
+      [getPointer, scale, commitPolygonPoints],
+    );
+
     if (!subMask.visible) {
       return null;
     }
@@ -1399,6 +1480,137 @@ const MaskOverlay = memo(
       );
     }
 
+    if (subMask.type === Mask.Polygon) {
+      const points: Coord[] = p.points || [];
+      if (points.length === 0) return null;
+      const toCanvas = (pt: Coord) => ({ x: (pt.x - cropX) * scale, y: (pt.y - cropY) * scale });
+      const flat = points.flatMap((pt) => {
+        const c = toCanvas(pt);
+        return [c.x, c.y];
+      });
+      const handleRadius = 6 / stageScale;
+      const setCursor = (e: KonvaEventObject<Event>, cursor: string) => {
+        const stage = e.target.getStage();
+        if (stage) stage.container().style.cursor = cursor;
+      };
+
+      if (p.isInitialDraw) {
+        // Still being drawn: clicks go to the canvas, which adds points.
+        return (
+          <Group listening={false}>
+            <Line {...commonProps} points={flat} closed={false} />
+            {points.map((pt, i) => {
+              const c = toCanvas(pt);
+              const isCloseTarget = i === 0 && points.length >= 3;
+              return (
+                <Circle
+                  key={i}
+                  x={c.x}
+                  y={c.y}
+                  radius={isCloseTarget ? handleRadius * 1.5 : handleRadius}
+                  fill={isCloseTarget ? '#0ea5e9' : 'white'}
+                  stroke={isCloseTarget ? 'white' : '#0ea5e9'}
+                  strokeWidth={2 / stageScale}
+                />
+              );
+            })}
+          </Group>
+        );
+      }
+
+      const showHandles = isSelected && !isToolActive;
+      return (
+        <Group>
+          <Line
+            {...commonProps}
+            points={flat}
+            closed
+            fill="transparent"
+            hitStrokeWidth={20}
+            draggable={!isToolActive}
+            dragBoundFunc={lockDragBoundFunc}
+            onDragStart={handleRadialDragStart}
+            onDragMove={handlePolygonDragMove}
+            onDragEnd={handleRadialDragEnd}
+            onMouseEnter={(e: KonvaEventObject<MouseEvent>) => {
+              onMaskMouseEnter();
+              if (!isToolActive && !isDragging.current) setCursor(e, 'move');
+            }}
+            onMouseLeave={(e: KonvaEventObject<MouseEvent>) => {
+              onMaskMouseLeave();
+              if (!isDragging.current) setCursor(e, '');
+            }}
+            onTouchEnd={handleMaskTouchEnd}
+            onTouchStart={handleMaskTouchStart}
+          />
+          {showHandles &&
+            points.map((pt, i) => {
+              const a = toCanvas(pt);
+              const b = toCanvas(points[(i + 1) % points.length]);
+              return (
+                <Circle
+                  key={`mid-${i}`}
+                  x={(a.x + b.x) / 2}
+                  y={(a.y + b.y) / 2}
+                  radius={handleRadius * 0.7}
+                  fill="white"
+                  opacity={0.6}
+                  stroke="#0ea5e9"
+                  strokeWidth={1.5 / stageScale}
+                  draggable
+                  dragBoundFunc={lockDragBoundFunc}
+                  onDragStart={(e) => handlePolygonVertexDragStart(e, i, true)}
+                  onDragMove={handlePolygonVertexDragMove}
+                  onDragEnd={handlePolygonVertexDragEnd}
+                  onTouchEnd={handleMaskTouchEnd}
+                  onTouchStart={handleMaskTouchStart}
+                  onMouseEnter={(e: KonvaEventObject<MouseEvent>) => {
+                    onMaskMouseEnter();
+                    setCursor(e, 'copy');
+                  }}
+                  onMouseLeave={(e: KonvaEventObject<MouseEvent>) => {
+                    onMaskMouseLeave();
+                    if (!isDragging.current) setCursor(e, '');
+                  }}
+                />
+              );
+            })}
+          {showHandles &&
+            points.map((pt, i) => {
+              const c = toCanvas(pt);
+              return (
+                <Circle
+                  key={`vertex-${i}`}
+                  x={c.x}
+                  y={c.y}
+                  radius={handleRadius}
+                  fill="#0ea5e9"
+                  stroke="white"
+                  strokeWidth={2 / stageScale}
+                  draggable
+                  dragBoundFunc={lockDragBoundFunc}
+                  onDragStart={(e) => handlePolygonVertexDragStart(e, i, false)}
+                  onDragMove={handlePolygonVertexDragMove}
+                  onDragEnd={handlePolygonVertexDragEnd}
+                  onDblClick={(e) => handlePolygonVertexRemove(e, i)}
+                  onDblTap={(e) => handlePolygonVertexRemove(e, i)}
+                  onTouchEnd={handleMaskTouchEnd}
+                  onTouchStart={handleMaskTouchStart}
+                  onMouseEnter={(e: KonvaEventObject<MouseEvent>) => {
+                    onMaskMouseEnter();
+                    setCursor(e, 'grab');
+                  }}
+                  onMouseLeave={(e: KonvaEventObject<MouseEvent>) => {
+                    onMaskMouseLeave();
+                    if (!isDragging.current) setCursor(e, '');
+                  }}
+                />
+              );
+            })}
+        </Group>
+      );
+    }
+
     if (subMask.type === Mask.Color || subMask.type === Mask.Luminance) {
       const { targetX, targetY } = p;
       if (targetX !== undefined && targetX >= 0 && targetY !== undefined && targetY >= 0) {
@@ -1840,6 +2052,47 @@ const ImageCanvas = memo(
     const isInitialDrawing = (isMasking || isAiEditing) && activeSubMask?.parameters?.isInitialDraw === true;
 
     const isToolActive = isBrushActive || isAiSubjectActive || isInitialDrawing || isParametricActive;
+    const isPolygonDrawing = isInitialDrawing && activeSubMask?.type === Mask.Polygon;
+    const polygonPoints: Coord[] = isPolygonDrawing ? activeSubMask?.parameters?.points || [] : [];
+
+    const setPolygonPoints = useCallback(
+      (points: Coord[]) => {
+        if (!activeSubMask) return;
+        const activeId = isMasking ? activeMaskId : activeAiSubMaskId;
+        updateSubMask(activeId, { parameters: { ...activeSubMask.parameters, points } });
+      },
+      [activeSubMask, isMasking, activeMaskId, activeAiSubMaskId, updateSubMask],
+    );
+
+    const finishPolygon = useCallback(() => {
+      if (!activeSubMask || (activeSubMask.parameters?.points?.length ?? 0) < 3) return;
+      const activeId = isMasking ? activeMaskId : activeAiSubMaskId;
+      const newParams = { ...activeSubMask.parameters };
+      delete newParams.isInitialDraw;
+      updateSubMask(activeId, { parameters: newParams });
+    }, [activeSubMask, isMasking, activeMaskId, activeAiSubMaskId, updateSubMask]);
+
+    // While a polygon is being drawn, Enter (or Escape) finishes it and Backspace/Delete removes
+    // the last point. Captured first so Backspace doesn't delete the whole mask.
+    useEffect(() => {
+      if (!isPolygonDrawing) return;
+      const onKeyDown = (e: KeyboardEvent) => {
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        const points: Coord[] = activeSubMask?.parameters?.points || [];
+        if (e.code === 'Enter' || e.code === 'NumpadEnter' || (e.code === 'Escape' && points.length >= 3)) {
+          finishPolygon();
+        } else if (e.code === 'Backspace' || e.code === 'Delete') {
+          if (points.length > 0) setPolygonPoints(points.slice(0, -1));
+        } else {
+          return;
+        }
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      };
+      window.addEventListener('keydown', onKeyDown, true);
+      return () => window.removeEventListener('keydown', onKeyDown, true);
+    }, [isPolygonDrawing, activeSubMask, finishPolygon, setPolygonPoints]);
 
     useEffect(() => {
       if (maskOverlayUrl && (isMasking || isAiEditing)) {
@@ -2419,6 +2672,27 @@ const ImageCanvas = memo(
           return;
         }
 
+        if (isPolygonDrawing && activeSubMask) {
+          if (e.evt && typeof e.evt.button === 'number' && e.evt.button !== 0) return;
+          const pos = getCanvasPointer(e.target.getStage());
+          if (!pos) return;
+          const { scale } = imageRenderSize;
+          const points: Coord[] = activeSubMask.parameters?.points || [];
+          const nearPoint = (pt?: Coord) =>
+            !!pt &&
+            Math.hypot((pt.x - cropX) * scale - pos.x, (pt.y - cropY) * scale - pos.y) <=
+              POLYGON_CLOSE_DISTANCE / effectiveZoomScale;
+          const isDoubleClick = (e.evt?.detail ?? 0) >= 2;
+
+          if (points.length >= 3 && (nearPoint(points[0]) || isDoubleClick)) {
+            finishPolygon();
+          } else if (!nearPoint(points[points.length - 1])) {
+            setPolygonPoints([...points, { x: pos.x / scale + cropX, y: pos.y / scale + cropY }]);
+          }
+          if (e.evt && e.evt.cancelable) e.evt.preventDefault();
+          return;
+        }
+
         if (isInitialDrawing && activeSubMask) {
           isDrawing.current = true;
           drawingStageRef.current = e.target.getStage();
@@ -2597,6 +2871,10 @@ const ImageCanvas = memo(
         moveRelightLight,
         isWbPickerActive,
         isInsideImage,
+        isPolygonDrawing,
+        finishPolygon,
+        setPolygonPoints,
+        effectiveZoomScale,
         isInitialDrawing,
         isBrushActive,
         isCloneOrHealActive,
@@ -3634,6 +3912,28 @@ const ImageCanvas = memo(
                           );
                         })}
 
+                      {isPolygonDrawing && cursorPreview.visible && polygonPoints.length > 0 && (
+                        <Line
+                          points={[
+                            (polygonPoints[polygonPoints.length - 1].x - cropX) * imageRenderSize.scale,
+                            (polygonPoints[polygonPoints.length - 1].y - cropY) * imageRenderSize.scale,
+                            cursorPreview.x,
+                            cursorPreview.y,
+                            ...(polygonPoints.length >= 2
+                              ? [
+                                  (polygonPoints[0].x - cropX) * imageRenderSize.scale,
+                                  (polygonPoints[0].y - cropY) * imageRenderSize.scale,
+                                ]
+                              : []),
+                          ]}
+                          stroke="#0ea5e9"
+                          strokeWidth={2}
+                          strokeScaleEnabled={false}
+                          dash={[4, 4]}
+                          opacity={0.8}
+                          listening={false}
+                        />
+                      )}
                       {previewBox && (
                         <Rect
                           x={Math.min(previewBox.start.x, previewBox.end.x)}

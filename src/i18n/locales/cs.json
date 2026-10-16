@@ -674,6 +674,10 @@
         "maskName_one": "Maska {{count}}",
         "maskName_other": "Maska {{count}}"
       },
+      "polygon": {
+        "drawHint": "Kliknutím přidáte body. Dokončete kliknutím na první bod, dvojklikem nebo klávesou Enter. Backspace odebere poslední bod.",
+        "editHint": "Tažením bodů změníte tvar. Tažením prostředního úchytu přidáte bod, dvojklikem na bod jej odeberete."
+      },
       "rangeTitle": "Rozsahy a globální",
       "resetMaskingTooltip": "Resetovat maskování",
       "settings": {
@@ -1236,6 +1240,7 @@
       "liquify": "Zkapalnění",
       "luminance": "Jas",
       "others": "Ostatní",
+      "polygon": "Mnohoúhelník",
       "quickErase": "Rychlé vymazání",
       "quickEraser": "Rychlá guma",
       "radial": "Radiální",

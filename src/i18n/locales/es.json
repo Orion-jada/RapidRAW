@@ -695,6 +695,10 @@
         "maskName_one": "Máscara {{count}}",
         "maskName_other": "Máscara {{count}}"
       },
+      "polygon": {
+        "drawHint": "Haz clic para añadir puntos. Haz clic en el primer punto, doble clic o pulsa Intro para terminar. Retroceso elimina el último punto.",
+        "editHint": "Arrastra los puntos para cambiar la forma. Arrastra un control central para añadir un punto; haz doble clic en un punto para eliminarlo."
+      },
       "rangeTitle": "Rangos y global",
       "resetMaskingTooltip": "Restablecer enmascaramiento",
       "settings": {
@@ -1262,6 +1266,7 @@
       "liquify": "Licuar",
       "luminance": "Luminancia",
       "others": "Otros",
+      "polygon": "Polígono",
       "quickErase": "Borrado rápido",
       "quickEraser": "Borrador rápido",
       "radial": "Radial",

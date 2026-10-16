@@ -184,6 +184,16 @@ fn default_line_flow() -> f32 {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
+struct PolygonMaskParameters {
+    #[serde(default)]
+    points: Vec<Point>,
+    /// 0-100: width of the soft edge, up to 10% of the shorter side of the rendered area.
+    #[serde(default)]
+    feather: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 struct FlowMaskParameters {
     #[serde(default)]
     lines: Vec<FlowLine>,
@@ -632,6 +642,94 @@ fn generate_linear_bitmap(
             mask.put_pixel(x_u, y_u, Luma([(clamped_intensity * 255.0) as u8]));
         }
     }
+
+    mask
+}
+
+/// Filled polygon (even-odd rule, so a self-crossing outline leaves its overlaps out). The edge
+/// fades over a band centred on the outline, from about a pixel (anti-aliasing) at feather 0.
+fn generate_polygon_bitmap(
+    params_value: &Value,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+) -> GrayImage {
+    let params: PolygonMaskParameters =
+        serde_json::from_value(params_value.clone()).unwrap_or_default();
+    let mut mask = GrayImage::new(width, height);
+    if params.points.len() < 3 || width == 0 || height == 0 {
+        return mask;
+    }
+
+    let pts: Vec<(f32, f32)> = params
+        .points
+        .iter()
+        .map(|p| {
+            (
+                p.x as f32 * scale - crop_offset.0,
+                p.y as f32 * scale - crop_offset.1,
+            )
+        })
+        .collect();
+    let edges: Vec<((f32, f32), (f32, f32))> = (0..pts.len())
+        .map(|i| (pts[i], pts[(i + 1) % pts.len()]))
+        .collect();
+
+    const MAX_FEATHER_FRACTION: f32 = 0.1;
+    let band =
+        params.feather.clamp(0.0, 100.0) / 100.0 * MAX_FEATHER_FRACTION * width.min(height) as f32;
+    let half_band = (band / 2.0).max(0.5);
+
+    let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
+    let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for &(x, y) in &pts {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
+        return mask;
+    }
+    let x0 = (min_x - half_band).floor().max(0.0) as u32;
+    let y0 = (min_y - half_band).floor().max(0.0) as u32;
+    let x1 = ((max_x + half_band).ceil().max(0.0) as u32).min(width);
+    let y1 = ((max_y + half_band).ceil().max(0.0) as u32).min(height);
+    if x0 >= x1 || y0 >= y1 {
+        return mask;
+    }
+
+    mask.par_chunks_mut(width as usize)
+        .enumerate()
+        .skip(y0 as usize)
+        .take((y1 - y0) as usize)
+        .for_each(|(y, row)| {
+            let py = y as f32 + 0.5;
+            for x in x0..x1 {
+                let px = x as f32 + 0.5;
+                let mut inside = false;
+                let mut min_dist_sq = f32::INFINITY;
+                for &((ax, ay), (bx, by)) in &edges {
+                    if (ay > py) != (by > py) && px < ax + (py - ay) * (bx - ax) / (by - ay) {
+                        inside = !inside;
+                    }
+                    let (ex, ey) = (bx - ax, by - ay);
+                    let len_sq = ex * ex + ey * ey;
+                    let t = if len_sq > 0.0 {
+                        (((px - ax) * ex + (py - ay) * ey) / len_sq).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    let (dx, dy) = (px - (ax + t * ex), py - (ay + t * ey));
+                    min_dist_sq = min_dist_sq.min(dx * dx + dy * dy);
+                }
+                let dist = min_dist_sq.sqrt();
+                let signed = if inside { dist } else { -dist };
+                let t = ((signed + half_band) / (2.0 * half_band)).clamp(0.0, 1.0);
+                row[x as usize] = (t * t * (3.0 - 2.0 * t) * 255.0).round() as u8;
+            }
+        });
 
     mask
 }
@@ -1265,6 +1363,13 @@ fn generate_sub_mask_bitmap(
             crop_offset,
         )),
         "linear" => Some(generate_linear_bitmap(
+            &sub_mask.parameters,
+            width,
+            height,
+            scale,
+            crop_offset,
+        )),
+        "polygon" => Some(generate_polygon_bitmap(
             &sub_mask.parameters,
             width,
             height,

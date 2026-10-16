@@ -667,6 +667,10 @@
         "maskName_one": "Masker {{count}}",
         "maskName_other": "Masker {{count}}"
       },
+      "polygon": {
+        "drawHint": "Klik om punten toe te voegen. Klik op het eerste punt, dubbelklik of druk op Enter om af te ronden. Backspace verwijdert het laatste punt.",
+        "editHint": "Sleep de punten om de vorm aan te passen. Sleep een middelste greep om een punt toe te voegen; dubbelklik op een punt om het te verwijderen."
+      },
       "rangeTitle": "Bereiken & globaal",
       "resetMaskingTooltip": "Maskering herstellen",
       "settings": {
@@ -1212,6 +1216,7 @@
       "liquify": "Uitvloeien",
       "luminance": "Luminantie",
       "others": "Overige",
+      "polygon": "Veelhoek",
       "quickErase": "Snel wissen",
       "quickEraser": "Snel wissen",
       "radial": "Radiaal",

@@ -115,6 +115,9 @@ const SUB_MASK_CONFIG: Record<Mask, any> = {
   [Mask.Brush]: { showBrushTools: true },
   [Mask.Flow]: { showBrushTools: true, showFlowControl: true },
   [Mask.Linear]: { parameters: [] },
+  [Mask.Polygon]: {
+    parameters: [{ key: 'feather', min: 0, max: 100, step: 1, defaultValue: 10 }],
+  },
   [Mask.Color]: {
     parameters: [
       { key: 'tolerance', min: 1, max: 100, step: 1, defaultValue: 20 },
@@ -480,6 +483,10 @@ export default function MasksPanel() {
         subMask.parameters.tolerance = 20;
         subMask.parameters.feather = 35;
       }
+    }
+
+    if (type === Mask.Polygon) {
+      Object.assign(subMask.parameters, { points: [], isInitialDraw: true });
     }
 
     if (type === Mask.AiDepth) {
@@ -2262,6 +2269,14 @@ function SettingsPanel({
                   onDragStateChange={onDragStateChange}
                 />
               ))}
+
+              {activeSubMask.type === Mask.Polygon && (
+                <Text variant={TextVariants.small} color={TextColors.secondary} className="leading-relaxed">
+                  {activeSubMask.parameters?.isInitialDraw
+                    ? t('editor.masks.polygon.drawHint')
+                    : t('editor.masks.polygon.editHint')}
+                </Text>
+              )}
 
               {subMaskConfig.showBrushTools &&
                 brushSettings &&

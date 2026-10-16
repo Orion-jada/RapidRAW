@@ -3,6 +3,7 @@ import {
   BringToFront,
   Circle,
   Cloud,
+  Pentagon,
   Droplet,
   Droplets,
   Eraser,
@@ -33,6 +34,7 @@ export enum Mask {
   Color = 'color',
   Linear = 'linear',
   Luminance = 'luminance',
+  Polygon = 'polygon',
   QuickEraser = 'quick-eraser',
   Radial = 'radial',
   Clone = 'clone',
@@ -87,6 +89,7 @@ export function formatMaskTypeName(type: string) {
   if (type === Mask.Linear) return i18n.t('masks.types.linear');
   if (type === Mask.Luminance) return i18n.t('masks.types.luminance');
   if (type === Mask.Radial) return i18n.t('masks.types.radial');
+  if (type === Mask.Polygon) return i18n.t('masks.types.polygon');
   if (type === Mask.Clone) return i18n.t('masks.types.clone');
   if (type === Mask.Heal) return i18n.t('masks.types.heal');
   if (type === Mask.Liquify) return i18n.t('masks.types.liquify');
@@ -119,6 +122,7 @@ export const MASK_ICON_MAP: Record<Mask, any> = {
   [Mask.Luminance]: Sun,
   [Mask.QuickEraser]: Eraser,
   [Mask.Radial]: Circle,
+  [Mask.Polygon]: Pentagon,
   [Mask.Clone]: Stamp,
   [Mask.Heal]: Bandage,
   [Mask.Liquify]: Spline,
@@ -136,6 +140,7 @@ export const MASK_BASIC_TYPES: Array<MaskType> = [
   { disabled: false, icon: Brush, name: 'Brush', type: Mask.Brush },
   { disabled: false, icon: TriangleRight, name: 'Linear', type: Mask.Linear },
   { disabled: false, icon: Circle, name: 'Radial', type: Mask.Radial },
+  { disabled: false, icon: Pentagon, name: 'Polygon', type: Mask.Polygon },
   { disabled: false, icon: Droplets, name: 'Flow', type: Mask.Flow },
 ];
 
@@ -213,6 +218,12 @@ export const AI_GENERATIVE_CREATION_TYPES: Array<MaskType> = [
     icon: Circle,
     name: 'Radial',
     type: Mask.Radial,
+  },
+  {
+    disabled: false,
+    icon: Pentagon,
+    name: 'Polygon',
+    type: Mask.Polygon,
   },
 ];
 

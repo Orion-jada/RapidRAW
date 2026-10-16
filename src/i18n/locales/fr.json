@@ -695,6 +695,10 @@
         "maskName_one": "Masque {{count}}",
         "maskName_other": "Masques {{count}}"
       },
+      "polygon": {
+        "drawHint": "Cliquez pour ajouter des points. Cliquez sur le premier point, double-cliquez ou appuyez sur Entrée pour terminer. Retour arrière supprime le dernier point.",
+        "editHint": "Faites glisser les points pour modifier la forme. Faites glisser une poignée centrale pour ajouter un point ; double-cliquez sur un point pour le supprimer."
+      },
       "rangeTitle": "Plages & Global",
       "resetMaskingTooltip": "Réinitialiser le masquage",
       "settings": {
@@ -1262,6 +1266,7 @@
       "liquify": "Fluidité",
       "luminance": "Luminance",
       "others": "Autres",
+      "polygon": "Polygone",
       "quickErase": "Gommage rapide",
       "quickEraser": "Gomme rapide",
       "radial": "Radial",

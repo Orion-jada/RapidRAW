@@ -5,7 +5,7 @@ import { ImageDimensions } from '../hooks/useImageRenderSize';
 export const createSubMask = (
   type: Mask,
   imageDimensions: ImageDimensions,
-  mode: SubMaskMode = SubMaskMode.Additive
+  mode: SubMaskMode = SubMaskMode.Additive,
 ) => {
   const { width, height } = imageDimensions || { width: 1000, height: 1000 };
   const common = {
@@ -36,6 +36,8 @@ export const createSubMask = (
         ...common,
         parameters: { startX: width * 0.25, startY: height / 2, endX: width * 0.75, endY: height / 2, range: 50 },
       };
+    case Mask.Polygon:
+      return { ...common, parameters: { points: [] as Array<{ x: number; y: number }>, feather: 10 } };
     case Mask.Brush:
       return { ...common, parameters: { lines: [] } };
     case Mask.Flow:

@@ -673,6 +673,10 @@
         "maskName_one": "Mask {{count}}",
         "maskName_other": "Mask {{count}}"
       },
+      "polygon": {
+        "drawHint": "Click to add points. Click the first point, double-click or press Enter to finish. Backspace removes the last point.",
+        "editHint": "Drag the points to reshape it. Drag a middle handle to add a point; double-click a point to remove it."
+      },
       "rangeTitle": "Ranges & Global",
       "resetMaskingTooltip": "Reset Masking",
       "settings": {
@@ -1235,6 +1239,7 @@
       "liquify": "Liquify",
       "luminance": "Luminance",
       "others": "Others",
+      "polygon": "Polygon",
       "quickErase": "Quick Erase",
       "quickEraser": "Quick Eraser",
       "radial": "Radial",

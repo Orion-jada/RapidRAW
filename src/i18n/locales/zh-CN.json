@@ -671,6 +671,10 @@
         "maskName_one": "蒙版 {{count}}",
         "maskName_other": "蒙版 {{count}}"
       },
+      "polygon": {
+        "drawHint": "单击添加点。单击第一个点、双击或按 Enter 键完成。按 Backspace 键删除最后一个点。",
+        "editHint": "拖动点以调整形状。拖动中间的控制点可添加点，双击点可将其删除。"
+      },
       "rangeTitle": "范围与全局",
       "resetMaskingTooltip": "重置蒙版",
       "settings": {
@@ -1233,6 +1237,7 @@
       "liquify": "液化",
       "luminance": "亮度",
       "others": "其他",
+      "polygon": "多边形",
       "quickErase": "快速擦除",
       "quickEraser": "快速橡皮擦",
       "radial": "径向",

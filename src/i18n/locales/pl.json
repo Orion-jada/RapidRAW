@@ -717,6 +717,10 @@
         "maskName_one": "Maska {{count}}",
         "maskName_other": "Maska {{count}}"
       },
+      "polygon": {
+        "drawHint": "Kliknij, aby dodać punkty. Kliknij pierwszy punkt, kliknij dwukrotnie lub naciśnij Enter, aby zakończyć. Backspace usuwa ostatni punkt.",
+        "editHint": "Przeciągnij punkty, aby zmienić kształt. Przeciągnij środkowy uchwyt, aby dodać punkt; kliknij dwukrotnie punkt, aby go usunąć."
+      },
       "rangeTitle": "Zakresy i globalne",
       "resetMaskingTooltip": "Resetuj maskowanie",
       "settings": {
@@ -1289,6 +1293,7 @@
       "liquify": "Skraplanie",
       "luminance": "Luminancja",
       "others": "Inne",
+      "polygon": "Wielokąt",
       "quickErase": "Szybkie wymazanie",
       "quickEraser": "Szybka gumka",
       "radial": "Radialny",

@@ -671,6 +671,10 @@
         "maskName_one": "マスク {{count}}",
         "maskName_other": "マスク {{count}}"
       },
+      "polygon": {
+        "drawHint": "クリックして点を追加します。最初の点をクリックするか、ダブルクリック、またはEnterキーで完了します。Backspaceキーで最後の点を削除します。",
+        "editHint": "点をドラッグして形を変更します。中間のハンドルをドラッグすると点を追加、点をダブルクリックすると削除します。"
+      },
       "rangeTitle": "範囲とグローバル",
       "resetMaskingTooltip": "マスク処理をリセット",
       "settings": {
@@ -1233,6 +1237,7 @@
       "liquify": "ゆがみ",
       "luminance": "ルミナンス",
       "others": "その他",
+      "polygon": "多角形",
       "quickErase": "クイック消去",
       "quickEraser": "クイック消しゴム",
       "radial": "円形",

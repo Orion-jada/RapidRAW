@@ -58,6 +58,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 - **Foreground mask with BiRefNet:** Replaces U²-Net with BiRefNet (1024 px), at about 0.55 s per full-resolution mask on the GPU.
 - **Sky mask with SkyWater-Seg:** Replaces U²-Net with SkyWater-Seg. It picks up small patches of sky, gives clean edges around antennas and rooftops, and no longer marks bright windows or reflections as sky. About 0.5 s per mask.
 - **Subtract from masks:** A **Subtract** button next to "Add New Component" takes away any component type from a mask: brush, linear, radial, AI masks or ranges. Use a brush to trim a subject mask that grabbed too much, or combine linear gradients to shape an exact area. Soft edges fade out instead of leaving hard holes.
+- **Polygon mask:** Click around an area to outline it with straight edges, then click the first point, double-click or press Enter to close it. Drag points to reshape it, drag an edge's middle handle to add a point, double-click a point to remove it, and use Feather to soften the edge. It also works for AI generative replace.
 
 ### Editing and Export
 

@@ -674,6 +674,10 @@
         "maskName_one": "Màscara {{count}}",
         "maskName_other": "Màscara {{count}}"
       },
+      "polygon": {
+        "drawHint": "Fes clic per afegir punts. Fes clic al primer punt, fes doble clic o prem Retorn per acabar. Retrocés elimina l'últim punt.",
+        "editHint": "Arrossega els punts per canviar la forma. Arrossega un control del mig per afegir un punt i fes doble clic en un punt per eliminar-lo."
+      },
       "rangeTitle": "Rangs i global",
       "resetMaskingTooltip": "Restablir emmascarament",
       "settings": {
@@ -1238,6 +1242,7 @@
       "liquify": "Liquar",
       "luminance": "Luminància",
       "others": "Altres",
+      "polygon": "Polígon",
       "quickErase": "Esborrat ràpid",
       "quickEraser": "Goma d'esborrar ràpida",
       "radial": "Radial",

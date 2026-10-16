@@ -112,6 +112,9 @@ const SUB_MASK_CONFIG: any = {
     parameters: [{ key: 'intensity', min: 1, max: 100, step: 1, defaultValue: 40 }],
   },
   [Mask.Linear]: { parameters: [] },
+  [Mask.Polygon]: {
+    parameters: [{ key: 'feather', min: 0, max: 100, step: 1, defaultValue: 10 }],
+  },
   [Mask.AiSubject]: {
     parameters: [
       { key: 'grow', min: -100, max: 100, step: 1, defaultValue: 50 },
@@ -536,6 +539,10 @@ export default function AIPanel() {
       subMask.parameters.centerY = -10000;
       subMask.parameters.radiusX = 0;
       subMask.parameters.radiusY = 0;
+    }
+
+    if (type === Mask.Polygon) {
+      Object.assign(subMask.parameters, { points: [], isInitialDraw: true });
     }
     return subMask;
   };
@@ -2201,6 +2208,14 @@ function SettingsPanel({
                   {...(param.key !== 'grow' && { fillOrigin: 'min' })}
                 />
               ))}
+
+              {activeSubMask.type === Mask.Polygon && (
+                <Text variant={TextVariants.small} color={TextColors.secondary} className="leading-relaxed">
+                  {activeSubMask.parameters?.isInitialDraw
+                    ? t('editor.masks.polygon.drawHint')
+                    : t('editor.masks.polygon.editHint')}
+                </Text>
+              )}
 
               {isComponentMode && activeSubMask.type === Mask.Liquify && (
                 <div className="pt-2">
