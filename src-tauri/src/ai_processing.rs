@@ -390,6 +390,58 @@ fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     Ok(models_dir)
 }
 
+/// Models that have been replaced, as the file names they were saved under and the SHA-256 their
+/// CoreML cache is keyed by.
+const SUPERSEDED_MODELS: &[(&[&str], &str)] = &[
+    // SAM 1 (ViT-B), replaced by SAM 2.1
+    (
+        &["sam_vit_b_01ec64_encoder.onnx"],
+        "16ab73d9c824886f0de2938c19df22fb9ec3deebfd0de58e65177e479213d7d1",
+    ),
+    (
+        &["sam_vit_b_01ec64_decoder.onnx"],
+        "85d0d672cf5b7fe763edcde429e5533e62f674af4b15c7d688b7673b0ef00bf7",
+    ),
+    // U²-Net foreground, replaced by BiRefNet
+    (
+        &["u2net.onnx"],
+        "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
+    ),
+    // U²-Net sky, replaced by SkyWater-Seg
+    (
+        &["skyseg_u2net.onnx", "skyseg-u2net.onnx"],
+        "ab9c34c64c3d821220a2886a4a06da4642ffa14d5b30e8d5339056a089aa1d39",
+    ),
+];
+
+/// Frees the disk space taken by models in `SUPERSEDED_MODELS`. Nothing else is touched.
+pub fn remove_superseded_models(app_handle: &tauri::AppHandle) {
+    if let Ok(data_dir) = app_handle.path().app_data_dir() {
+        remove_superseded_models_in(&data_dir.join("models"));
+    }
+}
+
+fn remove_superseded_models_in(models_dir: &Path) {
+    for (filenames, sha256) in SUPERSEDED_MODELS {
+        let coreml_cache = models_dir.join("coreml_cache").join(&sha256[..16]);
+        for path in filenames
+            .iter()
+            .map(|filename| models_dir.join(filename))
+            .chain([coreml_cache])
+        {
+            let removed = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
+                Ok(_) => fs::remove_file(&path),
+                Err(_) => continue,
+            };
+            match removed {
+                Ok(()) => log::info!("Removed superseded model {}", path.display()),
+                Err(e) => log::warn!("Failed to remove {}: {}", path.display(), e),
+            }
+        }
+    }
+}
+
 /// Creates an ONNX Runtime session. On macOS, `coreml_units` hands the model to CoreML (GPU or
 /// Neural Engine), falling back to CPU if CoreML can't compile it; `None` keeps it on CPU.
 ///

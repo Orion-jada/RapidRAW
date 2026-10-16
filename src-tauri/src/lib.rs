@@ -2033,6 +2033,13 @@ pub fn run() {
 
             setup_logging(&app_handle);
 
+            {
+                let models_app_handle = app_handle.clone();
+                std::thread::spawn(move || {
+                    ai_processing::remove_superseded_models(&models_app_handle);
+                });
+            }
+
             if let Some(backend) = &settings.processing_backend
                 && backend != "auto" {
                     log::info!("Applied processing backend setting: {}", backend);
