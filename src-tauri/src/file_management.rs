@@ -2847,10 +2847,14 @@ pub async fn apply_auto_lens_correction_to_paths(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn apply_auto_adjustments_to_paths(
+const FULL_DECODE_WORKER_THREADS: usize = 2;
+
+async fn update_sidecars_from_images(
     paths: Vec<String>,
     app_handle: AppHandle,
+    operation: &'static str,
+    fast_decode: bool,
+    update: impl Fn(&DynamicImage, &str, &AppSettings, &mut Value) + Send + Sync + 'static,
 ) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
     add_to_thumbnail_queue(&state, paths.len(), &app_handle);
@@ -2877,7 +2881,7 @@ pub async fn apply_auto_adjustments_to_paths(
 
         let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
 
-        paths.par_iter().for_each(|path| {
+        let process = |path: &String| {
             let loaded_image: Option<DynamicImage> = (|| -> Result<DynamicImage, String> {
                 let (source_path, sidecar_path) = parse_virtual_path(path);
                 let source_path_str = source_path.to_string_lossy().to_string();
@@ -2886,7 +2890,7 @@ pub async fn apply_auto_adjustments_to_paths(
                 let image = image_loader::load_base_image_from_bytes(
                     &file_bytes,
                     &source_path_str,
-                    true,
+                    fast_decode,
                     &settings,
                     None,
                 )
@@ -2898,41 +2902,12 @@ pub async fn apply_auto_adjustments_to_paths(
                     existing_metadata.adjustments = default_adjustments();
                 }
 
-                let context = gpu_context
-                    .as_ref()
-                    .ok_or("GPU is unavailable for auto adjustments")?;
-                let auto_adjustments_json = crate::auto_enhance::compute_auto_adjustments(
-                    context,
-                    &state,
-                    crate::auto_enhance::proxy_from_image(&image),
-                    &existing_metadata.adjustments,
-                    is_raw_file(&source_path_str),
-                    as_shot(&source_path_str),
-                    resolve_render_options(&settings, is_raw_file(&source_path_str)),
-                    crate::auto_enhance::proxy_cache_key(path),
-                )?;
-
-                let mut active_tools =
-                    crate::image_processing::active_tools(&existing_metadata.adjustments);
-
-                if let (Some(existing_map), Some(auto_map)) = (
-                    existing_metadata.adjustments.as_object_mut(),
-                    auto_adjustments_json.as_object(),
-                ) {
-                    for (k, v) in auto_map {
-                        if k == "activeTools" {
-                            if let Some(auto_tools) = v.as_object() {
-                                active_tools.extend(auto_tools.clone());
-                            }
-                            existing_map.insert(
-                                k.clone(),
-                                serde_json::Value::Object(std::mem::take(&mut active_tools)),
-                            );
-                        } else {
-                            existing_map.insert(k.clone(), v.clone());
-                        }
-                    }
-                }
+                update(
+                    &image,
+                    &source_path_str,
+                    &settings,
+                    &mut existing_metadata.adjustments,
+                );
 
                 if let Ok(json_string) = serde_json::to_string_pretty(&existing_metadata) {
                     let _ = std::fs::write(&sidecar_path, json_string);
@@ -2943,7 +2918,7 @@ pub async fn apply_auto_adjustments_to_paths(
                 }
                 Ok(image)
             })()
-            .map_err(|e| eprintln!("Failed to apply auto adjustments to {}: {}", path, e))
+            .map_err(|e| eprintln!("Failed to apply {} to {}: {}", operation, path, e))
             .ok();
 
             let result = generate_single_thumbnail_and_cache(
@@ -2968,12 +2943,102 @@ pub async fn apply_auto_adjustments_to_paths(
             }
 
             increment_thumbnail_progress(&state, &app_handle);
-        });
-    });
+        };
 
-    Ok(())
+        if fast_decode {
+            paths.par_iter().for_each(process);
+        } else if let Ok(pool) = rayon::ThreadPoolBuilder::new()
+            .num_threads(FULL_DECODE_WORKER_THREADS)
+            .build()
+        {
+            pool.install(|| paths.par_iter().for_each(process));
+        } else {
+            paths.iter().for_each(process);
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn apply_auto_adjustments_to_paths(
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let handle = app_handle.clone();
+    update_sidecars_from_images(
+        paths,
+        app_handle,
+        "auto adjustments",
+        true,
+        move |image, source_path, settings, adjustments| {
+            let state = handle.state::<AppState>();
+            let context = match gpu_processing::get_or_init_gpu_context(&state, &handle) {
+                Ok(context) => context,
+                Err(e) => {
+                    log::warn!("GPU is unavailable for auto adjustments: {}", e);
+                    return;
+                }
+            };
+            let is_raw = is_raw_file(source_path);
+            let auto_adjustments_json = match crate::auto_enhance::compute_auto_adjustments(
+                &context,
+                &state,
+                crate::auto_enhance::proxy_from_image(image),
+                adjustments,
+                is_raw,
+                as_shot(source_path),
+                resolve_render_options(settings, is_raw),
+                crate::auto_enhance::proxy_cache_key(source_path),
+            ) {
+                Ok(json) => json,
+                Err(e) => {
+                    log::warn!("Auto adjustments failed for {}: {}", source_path, e);
+                    return;
+                }
+            };
+
+            let mut active_tools = crate::image_processing::active_tools(adjustments);
+
+            if let (Some(existing_map), Some(auto_map)) = (
+                adjustments.as_object_mut(),
+                auto_adjustments_json.as_object(),
+            ) {
+                for (k, v) in auto_map {
+                    if k == "activeTools" {
+                        if let Some(auto_tools) = v.as_object() {
+                            active_tools.extend(auto_tools.clone());
+                        }
+                        existing_map.insert(
+                            k.clone(),
+                            serde_json::Value::Object(std::mem::take(&mut active_tools)),
+                        );
+                    } else {
+                        existing_map.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn apply_auto_straighten_to_paths(
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    update_sidecars_from_images(
+        paths,
+        app_handle,
+        "auto straighten",
+        false,
+        |image, source_path, _, adjustments| {
+            crate::auto_straighten::straighten_adjustments(image, source_path, adjustments)
+        },
+    )
+    .await
+}
 fn update_metadata_for_paths(
     paths: &[String],
     app_handle: &AppHandle,
