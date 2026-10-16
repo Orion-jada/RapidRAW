@@ -106,6 +106,7 @@ pub async fn apply_denoising(
                 *denoise_result_handle.lock().unwrap() = Some(image);
             }
             Err(e) => {
+                log::error!("Denoising failed: {}", e);
                 let _ = app_handle.emit("denoise-error", e);
             }
         }
@@ -394,6 +395,7 @@ fn denoise_image(
         return Err("File not found".to_string());
     }
 
+    let started = std::time::Instant::now();
     let is_raw = is_raw_file(&path_str);
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
 
@@ -572,7 +574,16 @@ fn denoise_image(
         "original": data_url_orig
     });
 
-    let _ = app_handle.emit("denoise-complete", &payload);
+    log::info!(
+        "Denoised '{}' ({}) in {:.1?}, sending {:.1} MB of previews",
+        path_str,
+        method,
+        started.elapsed(),
+        (data_url_denoised.len() + data_url_orig.len()) as f64 / 1e6
+    );
+    if let Err(e) = app_handle.emit("denoise-complete", &payload) {
+        log::error!("Couldn't send the denoised previews: {}", e);
+    }
 
     Ok((out_dynamic, data_url_denoised))
 }
