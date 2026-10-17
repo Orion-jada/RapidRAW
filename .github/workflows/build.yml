@@ -118,7 +118,11 @@ jobs:
       - name: Setup Android signing
         if: inputs.mobile == 'android' && github.event_name != 'pull_request'
         run: |
-          [ -n "${{ secrets.ANDROID_KEY_BASE64 }}" ] || { echo "No Android signing secrets; building an unsigned APK"; exit 0; }
+          if [ -z "${{ secrets.ANDROID_KEY_BASE64 }}" ]; then # no signing secrets (forks): sign with a throwaway key
+            keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/keystore.jks" -storepass ci-only -keypass ci-only -alias ci -keyalg RSA -dname CN=CI -validity 1
+            printf 'keyAlias=ci\npassword=ci-only\nstoreFile=%s\n' "$RUNNER_TEMP/keystore.jks" > src-tauri/gen/android/keystore.properties
+            exit 0
+          fi
           cd src-tauri/gen/android
           echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" > keystore.properties
           echo "password=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
