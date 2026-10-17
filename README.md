@@ -65,6 +65,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 - **Rebuilt auto-enhance:** Auto-enhance now renders a small preview through the real editing pipeline and tunes exposure, contrast, highlights, shadows, whites and blacks, vibrance and white balance against what the photo actually looks like, in about 0.16 s. Night shots stay dark, and clarity, dehaze and vignette are left alone. Also available in batch and from the command line (`--auto`).
 - **AI denoise for RAW files with RawNIND:** RAW files are denoised by RawNIND on the linear image before tone mapping, which keeps highlight detail (about 2 s for 24 MP). The AI slider is now a simple Strength control. Other files still use NIND.
 - **RawNIND Bayer denoise:** a second RawNIND option in the Denoise menu that cleans the camera's sensor data before it is turned into colour (demosaiced), as darktable does. It removes more colour noise in dark areas and takes about 0.5 s for 24 MP. It works with Bayer sensors (most cameras); for others, such as Fujifilm X-Trans, it uses regular RawNIND.
+- **Denoised RAWs keep their shadows:** A denoised RAW is saved as a `_Denoised.dng` that edits just like the original RAW, so brightening it afterwards brings back shadow detail instead of solid black. Exposure, white balance and other edits behave the same as on the original. (Denoised RAWs used to be saved as TIFFs with the shadows already crushed.)
 - **AI 2× upscale on export:** Doubles width and height with a RealPLKSR super-resolution model, after edits and crop. About a minute per 24 MP photo on the GPU, with a strength slider (default 60%, because full strength smooths fine texture). Also available from the command line (`--ai-upscale`).
 
 ### Library
@@ -84,7 +85,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 
 Needs a Mac with an M1 chip or newer, on macOS 13 (Ventura) or later.
 
-1. Download the `.dmg` file (for example `RapidRAW_1.6.5_aarch64.dmg`) from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
+1. Download the `.dmg` file (for example `RapidRAW_1.6.6_aarch64.dmg`) from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
 2. Open it and drag **RapidRAW** into **Applications**.
 3. Open RapidRAW. The app isn't notarized by Apple, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the RapidRAW message, then confirm.
 
