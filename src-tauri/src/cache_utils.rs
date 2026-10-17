@@ -3,7 +3,9 @@ use image::DynamicImage;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::Path;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 pub const GEOMETRY_KEYS: &[&str] = &[
     "transformDistortion",
@@ -386,9 +388,27 @@ pub fn calculate_full_job_hash(path: &str, adjustments: &serde_json::Value) -> u
     hasher.finish()
 }
 
+/// Size and modification time of a file, to tell when a cached decode of it has gone stale.
+pub type FileStamp = (u64, SystemTime);
+
+pub fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?))
+}
+
+struct DecodedImage {
+    path: String,
+    stamp: Option<FileStamp>,
+    image: Arc<DynamicImage>,
+    exif: HashMap<String, String>,
+}
+
+/// Recently decoded images by path. An entry only counts while the file on disk still has the
+/// stamp it was decoded with, so a file overwritten in place (a re-saved denoise, an export to
+/// the same name) is decoded again rather than shown as it was.
 pub struct DecodedImageCache {
     capacity: usize,
-    items: Vec<(String, Arc<DynamicImage>, HashMap<String, String>)>,
+    items: Vec<DecodedImage>,
 }
 
 impl DecodedImageCache {
@@ -406,15 +426,19 @@ impl DecodedImageCache {
         }
     }
 
-    pub fn get(&mut self, path: &str) -> Option<(Arc<DynamicImage>, HashMap<String, String>)> {
-        if let Some(pos) = self.items.iter().position(|(p, _, _)| p == path) {
-            let item = self.items.remove(pos);
-            let result = (item.1.clone(), item.2.clone());
-            self.items.push(item);
-            Some(result)
-        } else {
-            None
+    pub fn get(
+        &mut self,
+        path: &str,
+        stamp: Option<FileStamp>,
+    ) -> Option<(Arc<DynamicImage>, HashMap<String, String>)> {
+        let pos = self.items.iter().position(|item| item.path == path)?;
+        let item = self.items.remove(pos);
+        if stamp.is_none() || item.stamp != stamp {
+            return None;
         }
+        let result = (item.image.clone(), item.exif.clone());
+        self.items.push(item);
+        Some(result)
     }
 
     pub fn clear(&mut self) {
@@ -424,15 +448,21 @@ impl DecodedImageCache {
     pub fn insert(
         &mut self,
         path: String,
+        stamp: Option<FileStamp>,
         image: Arc<DynamicImage>,
         exif: HashMap<String, String>,
     ) {
-        if let Some(pos) = self.items.iter().position(|(p, _, _)| *p == path) {
+        if let Some(pos) = self.items.iter().position(|item| item.path == path) {
             self.items.remove(pos);
         } else if self.items.len() >= self.capacity {
             self.items.remove(0);
         }
-        self.items.push((path, image, exif));
+        self.items.push(DecodedImage {
+            path,
+            stamp,
+            image,
+            exif,
+        });
     }
 }
 
@@ -486,5 +516,55 @@ pub fn clear_session_caches(state: tauri::State<AppState>) {
     }
     if let Ok(mut geometry_cache) = state.geometry_cache.lock() {
         geometry_cache.clear();
+    }
+}
+
+#[cfg(test)]
+mod decoded_image_cache_tests {
+    use super::*;
+
+    fn image(value: u8) -> Arc<DynamicImage> {
+        Arc::new(DynamicImage::ImageLuma8(image::GrayImage::from_pixel(
+            1,
+            1,
+            image::Luma([value]),
+        )))
+    }
+
+    fn value(hit: Option<(Arc<DynamicImage>, HashMap<String, String>)>) -> Option<u8> {
+        hit.map(|(img, _)| img.to_luma8().get_pixel(0, 0)[0])
+    }
+
+    #[test]
+    fn an_overwritten_file_is_not_served_from_the_cache() {
+        let dir = std::env::temp_dir().join(format!("rapidraw-cache-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("photo_Denoised.tiff");
+        let key = file.to_string_lossy().to_string();
+
+        std::fs::write(&file, b"first save").unwrap();
+        let mut cache = DecodedImageCache::new(5);
+        cache.insert(key.clone(), file_stamp(&file), image(1), HashMap::new());
+        assert_eq!(value(cache.get(&key, file_stamp(&file))), Some(1));
+
+        // Same size, new contents: only the modification time differs.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&file, b"later save").unwrap();
+        assert_eq!(value(cache.get(&key, file_stamp(&file))), None);
+        assert_eq!(
+            value(cache.get(&key, file_stamp(&file))),
+            None,
+            "stale entry is dropped"
+        );
+
+        cache.insert(key.clone(), file_stamp(&file), image(2), HashMap::new());
+        assert_eq!(value(cache.get(&key, file_stamp(&file))), Some(2));
+        assert_eq!(
+            value(cache.get(&key, None)),
+            None,
+            "a file that can't be read never hits"
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

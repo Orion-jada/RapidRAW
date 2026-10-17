@@ -852,11 +852,12 @@ pub fn composite_patches_on_image(
 pub fn is_image_cached(path: String, state: tauri::State<'_, AppState>) -> bool {
     let (source_path, _) = parse_virtual_path(&path);
     let source_path_str = source_path.to_string_lossy().to_string();
+    let stamp = crate::cache_utils::file_stamp(&source_path);
     state
         .decoded_image_cache
         .lock()
         .unwrap()
-        .get(&source_path_str)
+        .get(&source_path_str, stamp)
         .is_some()
 }
 
@@ -926,11 +927,14 @@ pub async fn load_image(
 
     let path_clone = source_path_str.clone();
 
+    // Taken before reading the file, so a write that lands during the decode makes the next
+    // load decode again instead of serving what was read.
+    let file_stamp = crate::cache_utils::file_stamp(&source_path);
     let cached_data = state
         .decoded_image_cache
         .lock()
         .unwrap()
-        .get(&source_path_str);
+        .get(&source_path_str, file_stamp);
 
     let (pristine_arc, exif_data) = if let Some((cached_img, cached_exif)) = cached_data {
         (cached_img, cached_exif)
@@ -1000,6 +1004,7 @@ pub async fn load_image(
 
         state.decoded_image_cache.lock().unwrap().insert(
             source_path_str.clone(),
+            file_stamp,
             arc_img.clone(),
             exif_data_loaded.clone(),
         );
