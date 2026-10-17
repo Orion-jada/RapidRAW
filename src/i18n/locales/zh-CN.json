@@ -1402,6 +1402,7 @@
       "openInEditor": "在编辑器中打开",
       "original": "原始",
       "panZoomEnabled": "平移和缩放已启用",
+      "previewOutdated": "设置已更改。点击“重试”以更新预览。",
       "processingFailed": "处理失败",
       "qualityTileSizeLabel": "质量 / 分块大小",
       "reset": "重置",

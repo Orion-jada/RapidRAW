@@ -1402,6 +1402,7 @@
       "openInEditor": "편집기에서 열기",
       "original": "원본",
       "panZoomEnabled": "이동 및 확대/축소 활성화됨",
+      "previewOutdated": "설정이 변경되었습니다. 미리보기를 업데이트하려면 다시 시도를 클릭하세요.",
       "processingFailed": "처리 실패",
       "qualityTileSizeLabel": "품질 / 타일 크기",
       "reset": "초기화",

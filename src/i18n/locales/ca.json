@@ -1407,6 +1407,7 @@
       "openInEditor": "Obrir a l'editor",
       "original": "Original",
       "panZoomEnabled": "Desplaçament i zoom activats",
+      "previewOutdated": "La configuració ha canviat. Fes clic a Tornar-ho a intentar per actualitzar la vista prèvia.",
       "processingFailed": "El processament ha fallat",
       "qualityTileSizeLabel": "Qualitat / Mida del mosaic",
       "reset": "Restablir",

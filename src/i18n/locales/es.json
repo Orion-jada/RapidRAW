@@ -1433,6 +1433,7 @@
       "openInEditor": "Abrir en el editor",
       "original": "Original",
       "panZoomEnabled": "Desplazamiento y zoom habilitados",
+      "previewOutdated": "La configuración ha cambiado. Haz clic en Reintentar para actualizar la vista previa.",
       "processingFailed": "Procesamiento fallido",
       "qualityTileSizeLabel": "Calidad / Tamaño de mosaico",
       "reset": "Restablecer",

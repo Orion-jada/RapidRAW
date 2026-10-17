@@ -1404,6 +1404,7 @@
       "openInEditor": "Im Editor öffnen",
       "original": "Original",
       "panZoomEnabled": "Schwenken & Zoomen aktiviert",
+      "previewOutdated": "Einstellungen geändert. Klicken Sie auf Wiederholen, um die Vorschau zu aktualisieren.",
       "processingFailed": "Verarbeitung fehlgeschlagen",
       "qualityTileSizeLabel": "Qualität / Kachelgröße",
       "reset": "Zurücksetzen",

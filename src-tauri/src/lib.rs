@@ -2300,6 +2300,7 @@ pub fn run() {
             panorama_result: Arc::new(Mutex::new(None)),
             focus_stack_result: Arc::new(Mutex::new(None)),
             denoise_result: Arc::new(Mutex::new(None)),
+            denoise_generation: Arc::new(AtomicUsize::new(0)),
             indexing_task_handle: Mutex::new(None),
             lut_cache: Mutex::new(HashMap::new()),
             initial_file_path: Mutex::new(None),

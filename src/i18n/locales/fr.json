@@ -1433,6 +1433,7 @@
       "openInEditor": "Ouvrir dans l'éditeur",
       "original": "Original",
       "panZoomEnabled": "Panoramique & Zoom activés",
+      "previewOutdated": "Les réglages ont changé. Cliquez sur Réessayer pour mettre à jour l'aperçu.",
       "processingFailed": "Échec du traitement",
       "qualityTileSizeLabel": "Qualité / Taille de la tuile",
       "reset": "Réinitialiser",

@@ -60,6 +60,14 @@ pub async fn apply_denoising(
     let (source_path, _) = parse_virtual_path(&path);
     let path_str = source_path.to_string_lossy().to_string();
 
+    // A run started after this one (say, after the modal was closed mid-run and opened again)
+    // owns the result; this one must not replace it or the previews on screen.
+    let generation = state
+        .denoise_generation
+        .fetch_add(1, AtomicOrdering::SeqCst)
+        + 1;
+    let latest_generation = state.denoise_generation.clone();
+
     let mut ai_session = None;
     let mut bayer_session = None;
     if method == "ai_bayer" && is_raw_file(&path_str) {
@@ -94,18 +102,35 @@ pub async fn apply_denoising(
     let denoise_result_handle = state.denoise_result.clone();
 
     tokio::task::spawn_blocking(move || {
-        match denoise_image(
-            path_str,
+        let result = denoise_image(
+            path_str.clone(),
             intensity,
             method,
             app_handle.clone(),
             ai_session,
             bayer_session,
-        ) {
-            Ok((image, _)) => {
-                *denoise_result_handle.lock().unwrap() = Some(image);
+            true,
+        );
+        // Stored before the previews are sent, so Save always gets the image they show.
+        let mut stored = denoise_result_handle.lock().unwrap();
+        if latest_generation.load(AtomicOrdering::SeqCst) != generation {
+            log::info!(
+                "Dropping the denoise of '{}': a newer run replaced it",
+                path_str
+            );
+            return;
+        }
+        match result {
+            Ok((image, previews)) => {
+                *stored = Some(image);
+                drop(stored);
+                if let Err(e) = app_handle.emit("denoise-complete", &previews) {
+                    log::error!("Couldn't send the denoised previews: {}", e);
+                }
             }
             Err(e) => {
+                *stored = None;
+                drop(stored);
                 log::error!("Denoising failed: {}", e);
                 let _ = app_handle.emit("denoise-error", e);
             }
@@ -189,6 +214,7 @@ pub async fn batch_denoise_images(
                     rgb_session.clone()
                 },
                 bayer_session.clone(),
+                false,
             ) {
                 Ok((image, _)) => {
                     let parent_dir = source_path.parent().unwrap_or(std::path::Path::new(""));
@@ -389,7 +415,8 @@ fn denoise_image(
     app_handle: AppHandle,
     ai_session: Option<Arc<Mutex<ort::session::Session>>>,
     bayer_session: Option<Arc<Mutex<ort::session::Session>>>,
-) -> Result<(DynamicImage, String), String> {
+    with_previews: bool,
+) -> Result<(DynamicImage, serde_json::Value), String> {
     let path = Path::new(&path_str);
     if !path.exists() {
         return Err("File not found".to_string());
@@ -511,6 +538,16 @@ fn denoise_image(
         apply_cpu_default_raw_processing(&mut out_dynamic);
     }
 
+    if !with_previews {
+        log::info!(
+            "Denoised '{}' ({}) in {:.1?}",
+            path_str,
+            method,
+            started.elapsed()
+        );
+        return Ok((out_dynamic, serde_json::Value::Null));
+    }
+
     let _ = app_handle.emit("denoise-progress", "Finalizing data...");
     let _ = app_handle.emit("denoise-progress", "Generating previews...");
 
@@ -569,23 +606,18 @@ fn denoise_image(
     let base64_str_orig = general_purpose::STANDARD.encode(buf_orig.get_ref());
     let data_url_orig = format!("data:image/png;base64,{}", base64_str_orig);
 
-    let payload = serde_json::json!({
-        "denoised": data_url_denoised,
-        "original": data_url_orig
-    });
-
     log::info!(
-        "Denoised '{}' ({}) in {:.1?}, sending {:.1} MB of previews",
+        "Denoised '{}' ({}) in {:.1?}, with {:.1} MB of previews",
         path_str,
         method,
         started.elapsed(),
         (data_url_denoised.len() + data_url_orig.len()) as f64 / 1e6
     );
-    if let Err(e) = app_handle.emit("denoise-complete", &payload) {
-        log::error!("Couldn't send the denoised previews: {}", e);
-    }
-
-    Ok((out_dynamic, data_url_denoised))
+    let previews = serde_json::json!({
+        "denoised": data_url_denoised,
+        "original": data_url_orig
+    });
+    Ok((out_dynamic, previews))
 }
 
 fn rgb_to_ycbcr(r: &[f32], g: &[f32], b: &[f32]) -> (Vec<f32>, Vec<f32>, Vec<f32>) {

@@ -369,8 +369,13 @@ export default function DenoiseModal({
   const [raw9Available, setRaw9Available] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  // The settings the preview was made with. Save writes that result, so it waits for a rerun
+  // once the strength or method no longer match.
+  const [previewSettings, setPreviewSettings] = useState<{ intensity: number; method: DenoiseMethod } | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; path: string } | null>(null);
   const isBatch = targetPaths.length > 1;
+  const isPreviewOutdated =
+    !!previewBase64 && !isBatch && (previewSettings?.intensity !== intensity || previewSettings?.method !== method);
   const mouseDownTarget = useRef<EventTarget | null>(null);
 
   const targetPathsKey = targetPaths.join('\n');
@@ -433,6 +438,7 @@ export default function DenoiseModal({
       const initialMethod: DenoiseMethod = isRaw && !isAiFree ? 'ai' : 'bm3d';
       setMethod(initialMethod);
       setIntensity(defaultIntensityFor(initialMethod));
+      setPreviewSettings(null);
       setIsMounted(true);
       const timer = setTimeout(() => setShow(true), 10);
       return () => clearTimeout(timer);
@@ -478,6 +484,7 @@ export default function DenoiseModal({
         setBatchProgress(null);
       }
     } else {
+      setPreviewSettings({ intensity, method });
       onDenoise(intensity / 100, method);
     }
   };
@@ -520,8 +527,18 @@ export default function DenoiseModal({
 
     if (previewBase64 && originalBase64 && !isProcessing && !isBatch) {
       return (
-        <div className="w-full h-[500px]">
+        <div className="relative w-full h-[500px]">
           <ImageCompare original={originalBase64} denoised={previewBase64} />
+          {isPreviewOutdated && (
+            <Text
+              as="div"
+              variant={TextVariants.small}
+              color={TextColors.white}
+              className="absolute top-12 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-md bg-black/75 pointer-events-none whitespace-nowrap"
+            >
+              {t('modals.denoise.previewOutdated')}
+            </Text>
+          )}
           {savedPath && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
               <Text
@@ -674,7 +691,7 @@ export default function DenoiseModal({
           <Button
             onClick={handleRunDenoise}
             disabled={isProcessing || isSaving}
-            variant={previewBase64 && !isBatch ? 'secondary' : 'primary'}
+            variant={previewBase64 && !isBatch && !isPreviewOutdated ? 'secondary' : 'primary'}
           >
             {isProcessing || (isBatch && isSaving) ? (
               <Loader2 className="animate-spin mr-2" size={16} />
@@ -691,7 +708,7 @@ export default function DenoiseModal({
           </Button>
 
           {previewBase64 && !isBatch && (
-            <Button onClick={handleSave} disabled={isSaving || isProcessing}>
+            <Button onClick={handleSave} disabled={isSaving || isProcessing || isPreviewOutdated}>
               {isSaving ? <Loader2 className="animate-spin mr-2" size={16} /> : <Save className="mr-2" size={16} />}
               {t('modals.denoise.btnSave')}
             </Button>

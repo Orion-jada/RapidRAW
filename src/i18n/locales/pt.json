@@ -1433,6 +1433,7 @@
       "openInEditor": "Abrir no Editor",
       "original": "Original",
       "panZoomEnabled": "Panorâmica e Zoom ativados",
+      "previewOutdated": "As configurações mudaram. Clique em Tentar Novamente para atualizar a pré-visualização.",
       "processingFailed": "O Processamento Falhou",
       "qualityTileSizeLabel": "Qualidade / Tamanho do Bloco",
       "reset": "Redefinir",

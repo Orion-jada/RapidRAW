@@ -1462,6 +1462,7 @@
       "openInEditor": "Otwórz w edytorze",
       "original": "Oryginał",
       "panZoomEnabled": "Przesuwanie i przybliżanie jest włączone",
+      "previewOutdated": "Ustawienia uległy zmianie. Kliknij Spróbuj ponownie, aby zaktualizować podgląd.",
       "processingFailed": "Przetwarzanie nie powiodło się",
       "qualityTileSizeLabel": "Jakość / Rozmiar kafelka",
       "reset": "Resetuj",

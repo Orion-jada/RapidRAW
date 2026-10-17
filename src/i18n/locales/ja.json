@@ -1402,6 +1402,7 @@
       "openInEditor": "エディタで開く",
       "original": "オリジナル",
       "panZoomEnabled": "パンとズームが有効",
+      "previewOutdated": "設定が変更されました。「再試行」をクリックしてプレビューを更新してください。",
       "processingFailed": "処理に失敗しました",
       "qualityTileSizeLabel": "画質 / タイルサイズ",
       "reset": "リセット",

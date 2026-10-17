@@ -216,7 +216,8 @@ export function useTauriListeners({
           }));
       }),
       listen('denoise-complete', (event: any) => {
-        if (isEffectActive) {
+        // Only a run this modal is waiting on; not one left running when it was closed.
+        if (isEffectActive && useUIStore.getState().denoiseModalState.isProcessing) {
           const payload = event.payload;
           const isObject = typeof payload === 'object' && payload !== null;
           useUIStore.getState().setUI((state) => ({

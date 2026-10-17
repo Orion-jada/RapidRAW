@@ -1435,6 +1435,7 @@
       "openInEditor": "Apri nell'Editor",
       "original": "Originale",
       "panZoomEnabled": "Panoramica e Zoom abilitati",
+      "previewOutdated": "Le impostazioni sono cambiate. Fai clic su Riprova per aggiornare l'anteprima.",
       "processingFailed": "Elaborazione Fallita",
       "qualityTileSizeLabel": "Qualità / Dimensione Sezione",
       "reset": "Ripristina",
