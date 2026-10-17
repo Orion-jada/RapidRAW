@@ -1131,6 +1131,8 @@
       }
     },
     "header": {
+      "cancel": "Anuluj",
+      "deselectAll": "Odznacz wszystko",
       "search": {
         "addFilterOrSearch": "Dodaj filtr lub wyszukaj...",
         "aiAnalyzing": "Analizowanie zdjęć... ({{current}}/{{total}})",
@@ -1149,6 +1151,8 @@
         "tooltipRemoveAiSearch": "Usuń wyszukiwanie AI",
         "tooltipSearchFilter": "Wyszukaj lub Filtruj"
       },
+      "selectAll": "Zaznacz wszystko",
+      "selectItems": "Zaznacz elementy",
       "title": "Biblioteka",
       "viewOptions": {
         "currentFolder": "Bieżący folder",
@@ -1276,7 +1280,8 @@
     "tooltips": {
       "communityPresets": "Presety społeczności",
       "goHome": "Przejdź do strony głównej",
-      "importImages": "Importuj obrazy"
+      "importImages": "Importuj obrazy",
+      "select": "Zaznacz"
     }
   },
   "masks": {

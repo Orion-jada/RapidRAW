@@ -529,6 +529,7 @@ function App() {
     setEditor({
       isWbPickerActive: false,
       isRelightPickerActive: false,
+      activeCenterMarker: null,
       isStraightenActive: false,
       isGuidedPerspectiveActive: false,
       activeMaskId: null,

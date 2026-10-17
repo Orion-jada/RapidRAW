@@ -298,7 +298,12 @@ export default function EffectsPanel({
       setEditor({ isRelightPickerActive: false });
       return;
     }
-    setEditor({ activeRelightLightId: id, isRelightPickerActive: true, isWbPickerActive: false });
+    setEditor({
+      activeRelightLightId: id,
+      isRelightPickerActive: true,
+      isWbPickerActive: false,
+      activeCenterMarker: null,
+    });
   };
 
   const handleAddLight = () => {
@@ -307,7 +312,12 @@ export default function EffectsPanel({
       ...prev,
       relightLights: [...(prev.relightLights || []), light],
     }));
-    setEditor({ activeRelightLightId: light.id, isRelightPickerActive: true, isWbPickerActive: false });
+    setEditor({
+      activeRelightLightId: light.id,
+      isRelightPickerActive: true,
+      isWbPickerActive: false,
+      activeCenterMarker: null,
+    });
   };
 
   const handleLightChange = (key: keyof RelightLight, value: number | string) => {
@@ -912,46 +922,53 @@ export default function EffectsPanel({
               order={toolOrder.indexOf('vignette')}
               title={t('adjustments.effects.vignette')}
             >
-              <Slider
-                label={t('adjustments.effects.amount')}
-                max={100}
-                min={-100}
-                onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteAmount, e.target.value)}
-                step={1}
-                value={adjustments.vignetteAmount}
-                onDragStateChange={onDragStateChange}
-              />
-              <Slider
-                defaultValue={50}
-                label={t('adjustments.effects.midpoint')}
-                max={100}
-                min={0}
-                onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteMidpoint, e.target.value)}
-                step={1}
-                value={adjustments.vignetteMidpoint}
-                onDragStateChange={onDragStateChange}
-                fillOrigin="min"
-              />
-              <Slider
-                label={t('adjustments.effects.roundness')}
-                max={100}
-                min={-100}
-                onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteRoundness, e.target.value)}
-                step={1}
-                value={adjustments.vignetteRoundness}
-                onDragStateChange={onDragStateChange}
-              />
-              <Slider
-                defaultValue={50}
-                label={t('adjustments.effects.feather')}
-                max={100}
-                min={0}
-                onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteFeather, e.target.value)}
-                step={1}
-                value={adjustments.vignetteFeather}
-                onDragStateChange={onDragStateChange}
-                fillOrigin="min"
-              />
+              <div
+                data-center-marker-controls="vignette"
+                onPointerDown={() =>
+                  setEditor({ activeCenterMarker: 'vignette', isRelightPickerActive: false, isWbPickerActive: false })
+                }
+              >
+                <Slider
+                  label={t('adjustments.effects.amount')}
+                  max={100}
+                  min={-100}
+                  onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteAmount, e.target.value)}
+                  step={1}
+                  value={adjustments.vignetteAmount}
+                  onDragStateChange={onDragStateChange}
+                />
+                <Slider
+                  defaultValue={50}
+                  label={t('adjustments.effects.midpoint')}
+                  max={100}
+                  min={0}
+                  onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteMidpoint, e.target.value)}
+                  step={1}
+                  value={adjustments.vignetteMidpoint}
+                  onDragStateChange={onDragStateChange}
+                  fillOrigin="min"
+                />
+                <Slider
+                  label={t('adjustments.effects.roundness')}
+                  max={100}
+                  min={-100}
+                  onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteRoundness, e.target.value)}
+                  step={1}
+                  value={adjustments.vignetteRoundness}
+                  onDragStateChange={onDragStateChange}
+                />
+                <Slider
+                  defaultValue={50}
+                  label={t('adjustments.effects.feather')}
+                  max={100}
+                  min={0}
+                  onChange={(e: SliderChangeEvent) => handleAdjustmentChange(Effect.VignetteFeather, e.target.value)}
+                  step={1}
+                  value={adjustments.vignetteFeather}
+                  onDragStateChange={onDragStateChange}
+                  fillOrigin="min"
+                />
+              </div>
             </AdjustmentSubSection>
           )}
 

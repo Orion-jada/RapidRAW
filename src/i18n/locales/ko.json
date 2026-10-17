@@ -1081,6 +1081,8 @@
       }
     },
     "header": {
+      "cancel": "취소",
+      "deselectAll": "모두 선택 해제",
       "search": {
         "addFilterOrSearch": "필터 추가 또는 검색...",
         "aiAnalyzing": "사진 분석 중... ({{current}}/{{total}})",
@@ -1099,6 +1101,8 @@
         "tooltipRemoveAiSearch": "AI 검색 제거",
         "tooltipSearchFilter": "검색 또는 필터"
       },
+      "selectAll": "모두 선택",
+      "selectItems": "항목 선택",
       "title": "라이브러리",
       "viewOptions": {
         "currentFolder": "현재 폴더",
@@ -1220,7 +1224,8 @@
     "tooltips": {
       "communityPresets": "커뮤니티 프리셋",
       "goHome": "홈으로 이동",
-      "importImages": "이미지 가져오기"
+      "importImages": "이미지 가져오기",
+      "select": "선택"
     }
   },
   "masks": {
