@@ -118,6 +118,7 @@ jobs:
       - name: Setup Android signing
         if: inputs.mobile == 'android' && github.event_name != 'pull_request'
         run: |
+          [ -n "${{ secrets.ANDROID_KEY_BASE64 }}" ] || { echo "No Android signing secrets; building an unsigned APK"; exit 0; }
           cd src-tauri/gen/android
           echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" > keystore.properties
           echo "password=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
