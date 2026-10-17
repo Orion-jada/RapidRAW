@@ -59,6 +59,7 @@ regex = "1.13.1"
 memmap2 = "0.9.11"
 half = { version = "2.7.1", features = ["bytemuck"] }
 glam = "0.33.5"
+flate2 = "1.1.9"
 quick-xml = { version = "0.41", features = ["serialize"] }
 fuzzy-matcher = "0.3.7"
 image-hdr = { version = "0.6.0", default-features = false }

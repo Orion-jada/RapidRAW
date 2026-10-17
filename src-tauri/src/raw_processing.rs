@@ -187,6 +187,8 @@ fn develop_internal(
     let orientation = metadata_orientation(decoder.as_ref(), &source)?;
 
     let is_linear_format = is_linear_raw_format(&raw_image);
+    // Highlights in a DNG RapidRAW developed were already recovered.
+    let recover_highlights = !crate::linear_dng::is_developed(decoder.as_ref());
 
     let (apply_ungamma, apply_calibration) = match linear_mode.as_str() {
         "gamma" => (true, true),
@@ -275,7 +277,11 @@ fn develop_internal(
                     b = srgb_to_linear(b.max(0.0));
                 }
 
-                let (rec_r, rec_g, rec_b) = recover_clipped_pixel(r, g, b);
+                let (rec_r, rec_g, rec_b) = if recover_highlights {
+                    recover_clipped_pixel(r, g, b)
+                } else {
+                    (r, g, b)
+                };
 
                 p[0] = rec_r.clamp(0.0, clamp_limit);
                 p[1] = rec_g.clamp(0.0, clamp_limit);
@@ -323,6 +329,9 @@ fn develop_internal(
 pub fn read_as_shot(file_bytes: &[u8]) -> Option<AsShot> {
     let source = RawSource::new_from_slice(file_bytes);
     let decoder = rawler::get_decoder(&source).ok()?;
+    if let Some(as_shot) = crate::linear_dng::as_shot(decoder.as_ref()) {
+        return Some(as_shot);
+    }
     let raw_image = decoder
         .raw_image(&source, &RawDecodeParams::default(), true)
         .ok()?;

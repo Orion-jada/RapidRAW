@@ -116,6 +116,7 @@ pub fn load_base_image_from_bytes(
     if is_raw_file(path_for_ext_check)
         && !use_fast_raw_dev
         && settings.use_apple_raw9.unwrap_or(false)
+        && !crate::linear_dng::is_developed_file(path_for_ext_check, bytes)
     {
         if let Some((tracker, generation)) = &cancel_token
             && tracker.load(Ordering::SeqCst) != *generation

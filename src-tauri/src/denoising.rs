@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 use std::fs;
 use std::io::Cursor;
 use std::panic::{self, AssertUnwindSafe};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
@@ -198,8 +198,7 @@ pub async fn batch_denoise_images(
                 }),
             );
 
-            let (source_path, source_sidecar_path) =
-                crate::file_management::parse_virtual_path(path_str);
+            let (source_path, _) = crate::file_management::parse_virtual_path(path_str);
             let real_path = source_path.to_string_lossy().to_string();
             let is_raw = crate::formats::is_raw_file(&real_path);
 
@@ -216,48 +215,15 @@ pub async fn batch_denoise_images(
                 bayer_session.clone(),
                 false,
             ) {
-                Ok((image, _)) => {
-                    let parent_dir = source_path.parent().unwrap_or(std::path::Path::new(""));
-                    let stem = source_path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy();
-
-                    let (output_filename, image_to_save) = if is_raw {
-                        (
-                            format!("{}_Denoised.tiff", stem),
-                            DynamicImage::ImageRgb16(image.to_rgb16()),
-                        )
-                    } else {
-                        (
-                            format!("{}_Denoised.png", stem),
-                            DynamicImage::ImageRgb8(image.to_rgb8()),
-                        )
-                    };
-
-                    let output_path = parent_dir.join(output_filename);
-                    if let Err(e) = image_to_save.save(&output_path) {
+                Ok((image, _)) => match save_denoised(path_str, &image) {
+                    Ok(output_path) => results.push(output_path.to_string_lossy().to_string()),
+                    Err(e) => {
                         let _ = app_handle.emit(
                             "denoise-error",
                             format!("Failed to save {}: {}", real_path, e),
                         );
-                        continue;
                     }
-
-                    let _ = crate::exif_processing::write_rrexif_sidecar(&real_path, &output_path);
-
-                    if source_sidecar_path.exists()
-                        && let Some(output_path_str) = output_path.to_str()
-                    {
-                        let (_, dest_sidecar_path) =
-                            crate::file_management::parse_virtual_path(output_path_str);
-                        if let Err(e) = std::fs::copy(&source_sidecar_path, &dest_sidecar_path) {
-                            log::warn!("Failed to copy sidecar file for denoised image: {}", e);
-                        }
-                    }
-
-                    results.push(output_path.to_string_lossy().to_string());
-                }
+                },
                 Err(e) => {
                     let _ = app_handle.emit(
                         "denoise-error",
@@ -283,49 +249,63 @@ pub async fn save_denoised_image(
             .to_string()
     })?;
 
-    let is_raw = crate::formats::is_raw_file(&original_path_str);
+    let output_path = save_denoised(&original_path_str, &denoised_image)?;
+    Ok(output_path.to_string_lossy().to_string())
+}
 
-    let (first_path, source_sidecar_path) =
-        crate::file_management::parse_virtual_path(&original_path_str);
-    let parent_dir = first_path
+/// Saves a denoised image next to its source, with the source's metadata and edits: a linear
+/// DNG for RAWs, which edits like the RAW it came from, and a PNG for other images.
+fn save_denoised(path: &str, image: &DynamicImage) -> Result<PathBuf, String> {
+    let (source_path, source_sidecar_path) = parse_virtual_path(path);
+    let parent_dir = source_path
         .parent()
         .ok_or_else(|| "Could not determine parent directory.".to_string())?;
-    let stem = first_path
+    let stem = source_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("denoised");
+    let source_str = source_path.to_string_lossy().to_string();
 
-    let (output_filename, image_to_save): (String, DynamicImage) = if is_raw {
-        let filename = format!("{}_Denoised.tiff", stem);
-        (
-            filename,
-            DynamicImage::ImageRgb16(denoised_image.to_rgb16()),
+    let output_path = if is_raw_file(&source_path) {
+        let output_path = parent_dir.join(format!("{}_Denoised.dng", stem));
+        let metadata = fs::read(&source_path)
+            .ok()
+            .and_then(|bytes| crate::exif_processing::read_raw_metadata(&bytes));
+        let mut preview = image.resize(1024, 1024, image::imageops::FilterType::Triangle);
+        apply_cpu_default_raw_processing(&mut preview);
+        let pixels = match image.as_rgb32f() {
+            Some(pixels) => std::borrow::Cow::Borrowed(pixels),
+            None => std::borrow::Cow::Owned(image.to_rgb32f()),
+        };
+        crate::linear_dng::write(
+            &output_path,
+            &pixels,
+            metadata.as_ref(),
+            crate::as_shot::as_shot(path),
+            &preview,
         )
+        .map_err(|e| format!("Failed to save image: {}", e))?;
+        output_path
     } else {
-        let filename = format!("{}_Denoised.png", stem);
-        (filename, DynamicImage::ImageRgb8(denoised_image.to_rgb8()))
+        let output_path = parent_dir.join(format!("{}_Denoised.png", stem));
+        DynamicImage::ImageRgb8(image.to_rgb8())
+            .save(&output_path)
+            .map_err(|e| format!("Failed to save image: {}", e))?;
+        output_path
     };
 
-    let output_path = parent_dir.join(output_filename);
-
-    image_to_save
-        .save(&output_path)
-        .map_err(|e| format!("Failed to save image: {}", e))?;
-
-    let (real_path, _) = crate::file_management::parse_virtual_path(&original_path_str);
-    let _ =
-        crate::exif_processing::write_rrexif_sidecar(&real_path.to_string_lossy(), &output_path);
+    let _ = crate::exif_processing::write_rrexif_sidecar(&source_str, &output_path);
 
     if source_sidecar_path.exists()
         && let Some(output_path_str) = output_path.to_str()
     {
-        let (_, dest_sidecar_path) = crate::file_management::parse_virtual_path(output_path_str);
-        if let Err(e) = std::fs::copy(&source_sidecar_path, &dest_sidecar_path) {
+        let (_, dest_sidecar_path) = parse_virtual_path(output_path_str);
+        if let Err(e) = fs::copy(&source_sidecar_path, &dest_sidecar_path) {
             log::warn!("Failed to copy sidecar file for denoised image: {}", e);
         }
     }
 
-    Ok(output_path.to_string_lossy().to_string())
+    Ok(output_path)
 }
 
 fn run_bm3d(
@@ -436,9 +416,12 @@ fn denoise_image(
     }
     let rawnind = (method == "ai" || method == "ai_bayer") && is_raw;
     if rawnind {
-        // RawNIND is trained on noise straight out of demosaicing: skip Apple's develop and the
-        // raw pre-pass (chroma smoothing, sharpening). Sharpening is reapplied after denoising.
+        // RawNIND is trained on noise straight out of demosaicing: skip Apple's develop.
         original_settings.use_apple_raw9 = Some(false);
+    }
+    if is_raw {
+        // Denoised RAWs are saved as linear DNGs, which get the raw pre-pass (chroma smoothing,
+        // sharpening) when they're opened, like any RAW. Denoise the image from before it.
         original_settings.raw_preprocessing_color_nr = Some(0.0);
         original_settings.raw_preprocessing_sharpening = Some(0.0);
     }
@@ -473,11 +456,7 @@ fn denoise_image(
         _ => None,
     };
 
-    let mut out_dynamic = if let Some(mut out) = bayer_denoised {
-        let (_, sharpening) = raw_preprocessing_amounts(&settings);
-        if sharpening > 0.0 {
-            remove_raw_artifacts_and_enhance(&mut out, 0.0, sharpening);
-        }
+    let out_dynamic = if let Some(out) = bayer_denoised {
         out
     } else if method == "ai" || method == "ai_bayer" {
         let session_arc = match ai_session {
@@ -508,12 +487,7 @@ fn denoise_image(
                 },
             )
             .map_err(|e| e.to_string())?;
-            let mut out = DynamicImage::ImageRgb32F(denoised);
-            let (_, sharpening) = raw_preprocessing_amounts(&settings);
-            if sharpening > 0.0 {
-                remove_raw_artifacts_and_enhance(&mut out, 0.0, sharpening);
-            }
-            out
+            DynamicImage::ImageRgb32F(denoised)
         } else {
             crate::ai_processing::run_ai_denoise(
                 &rgb_img_for_denoiser,
@@ -533,10 +507,6 @@ fn denoise_image(
     } else {
         run_bm3d(&rgb_img_for_denoiser, intensity, &app_handle)?
     };
-
-    if is_raw {
-        apply_cpu_default_raw_processing(&mut out_dynamic);
-    }
 
     if !with_previews {
         log::info!(
@@ -565,46 +535,29 @@ fn denoise_image(
             (width, height)
         }
     };
-
-    let denoised_preview = if new_width != width {
-        out_dynamic.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
-    } else {
-        out_dynamic.clone()
+    let encode_preview = |image: DynamicImage| -> Result<String, String> {
+        let image = if is_raw {
+            as_first_opened(image, &settings)
+        } else {
+            image
+        };
+        let image = if new_width != width {
+            image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+        } else {
+            image
+        };
+        let mut buf = Cursor::new(Vec::new());
+        image
+            .to_rgb8()
+            .write_to(&mut buf, ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode preview: {}", e))?;
+        Ok(format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(buf.get_ref())
+        ))
     };
-
-    let mut buf_denoised = Cursor::new(Vec::new());
-    denoised_preview
-        .to_rgb8()
-        .write_to(&mut buf_denoised, ImageFormat::Png)
-        .map_err(|e| format!("Failed to encode preview: {}", e))?;
-    let base64_str_denoised = general_purpose::STANDARD.encode(buf_denoised.get_ref());
-    let data_url_denoised = format!("data:image/png;base64,{}", base64_str_denoised);
-
-    let mut original_dynamic = DynamicImage::ImageRgb32F(rgb_img_for_denoiser);
-    if rawnind {
-        // Compare against the image as the editor shows it, with the raw pre-pass applied.
-        let (color_nr, sharpening) = raw_preprocessing_amounts(&settings);
-        if color_nr > 0.0 || sharpening > 0.0 {
-            remove_raw_artifacts_and_enhance(&mut original_dynamic, color_nr, sharpening);
-        }
-    }
-
-    if is_raw {
-        apply_cpu_default_raw_processing(&mut original_dynamic);
-    }
-    let original_preview = if new_width != width {
-        original_dynamic.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
-    } else {
-        original_dynamic
-    };
-
-    let mut buf_orig = Cursor::new(Vec::new());
-    original_preview
-        .to_rgb8()
-        .write_to(&mut buf_orig, ImageFormat::Png)
-        .map_err(|e| format!("Failed to encode original preview: {}", e))?;
-    let base64_str_orig = general_purpose::STANDARD.encode(buf_orig.get_ref());
-    let data_url_orig = format!("data:image/png;base64,{}", base64_str_orig);
+    let data_url_denoised = encode_preview(out_dynamic.clone())?;
+    let data_url_orig = encode_preview(DynamicImage::ImageRgb32F(rgb_img_for_denoiser))?;
 
     log::info!(
         "Denoised '{}' ({}) in {:.1?}, with {:.1} MB of previews",
@@ -618,6 +571,17 @@ fn denoise_image(
         "original": data_url_orig
     });
     Ok((out_dynamic, previews))
+}
+
+/// A developed RAW (linear, before the raw pre-pass) as it looks when first opened in the editor:
+/// with the raw pre-pass and the default look.
+fn as_first_opened(mut image: DynamicImage, settings: &AppSettings) -> DynamicImage {
+    let (color_nr, sharpening) = raw_preprocessing_amounts(settings);
+    if color_nr > 0.0 || sharpening > 0.0 {
+        remove_raw_artifacts_and_enhance(&mut image, color_nr, sharpening);
+    }
+    apply_cpu_default_raw_processing(&mut image);
+    image
 }
 
 fn rgb_to_ycbcr(r: &[f32], g: &[f32], b: &[f32]) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
