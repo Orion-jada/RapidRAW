@@ -1,5 +1,9 @@
+use crate::app_settings::AppSettings;
 use crate::app_state::{AppState, LoadedImage};
 use crate::file_management::parse_virtual_path;
+use crate::formats::is_raw_file;
+use crate::image_loader::{load_base_image_from_bytes, raw_preprocessing_amounts};
+use crate::image_processing::remove_raw_artifacts_and_enhance;
 use crate::relight::RelightTap;
 use half::f16;
 use image::{DynamicImage, GenericImageView, Rgb32FImage, imageops};
@@ -14,6 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
 const MODEL_TAG: &str = "nind-v3";
+const RAWNIND_MODEL_TAG: &str = "rawnind-v1";
 const FILE_MAGIC: &[u8; 8] = b"RRDN0002";
 const DISK_CACHE_LIMIT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MEMORY_CACHE_CAPACITY: usize = 2;
@@ -74,9 +79,19 @@ fn source_string(path: &str) -> String {
     parse_virtual_path(path).0.to_string_lossy().to_string()
 }
 
+/// RAWs are denoised by RawNIND, as in the Denoise modal; everything else by NIND.
+fn uses_rawnind(source: &str) -> bool {
+    is_raw_file(source)
+}
+
 fn entry_key(source: &str) -> String {
+    let model = if uses_rawnind(source) {
+        RAWNIND_MODEL_TAG
+    } else {
+        MODEL_TAG
+    };
     let mut hasher = blake3::Hasher::new();
-    hasher.update(MODEL_TAG.as_bytes());
+    hasher.update(model.as_bytes());
     hasher.update(source.as_bytes());
     if let Ok(meta) = fs::metadata(source) {
         hasher.update(&meta.len().to_le_bytes());
@@ -369,6 +384,42 @@ fn run_model(
     Ok(output)
 }
 
+/// RawNIND is trained on noise straight out of demosaicing, so a RAW is denoised from before the
+/// raw pre-pass (chroma smoothing, sharpening), which is then applied to the result, as the
+/// Denoise modal's saved DNG gets it when opened. With Apple RAW 9 the editor's image comes from
+/// Apple's develop instead, so it's denoised as it is. RawNIND keeps highlight headroom and matches
+/// each tile's brightness itself, so NIND's fix-ups in `run_model` aren't needed.
+fn run_rawnind(
+    base: &DynamicImage,
+    source: &str,
+    settings: &AppSettings,
+    session: &Mutex<ort::session::Session>,
+    on_progress: &dyn Fn(f32),
+) -> Result<Rgb32FImage, String> {
+    let (color_nr, sharpening) = raw_preprocessing_amounts(settings);
+    let skip_pre_pass =
+        !settings.use_apple_raw9.unwrap_or(false) && (color_nr > 0.0 || sharpening > 0.0);
+    let before_pre_pass = skip_pre_pass
+        .then(|| {
+            let mut settings = settings.clone();
+            settings.raw_preprocessing_color_nr = Some(0.0);
+            settings.raw_preprocessing_sharpening = Some(0.0);
+            let bytes = fs::read(source).ok()?;
+            load_base_image_from_bytes(&bytes, source, false, &settings, None).ok()
+        })
+        .flatten()
+        .filter(|image| image.dimensions() == base.dimensions());
+
+    let input = before_pre_pass.as_ref().unwrap_or(base).to_rgb32f();
+    let denoised = crate::ai_processing::run_rawnind_denoise(&input, 1.0, session, on_progress)
+        .map_err(|e| e.to_string())?;
+    let mut output = DynamicImage::ImageRgb32F(denoised);
+    if before_pre_pass.is_some() {
+        remove_raw_artifacts_and_enhance(&mut output, color_nr, sharpening);
+    }
+    Ok(output.into_rgb32f())
+}
+
 async fn generate(
     app_handle: &tauri::AppHandle,
     loaded_image: LoadedImage,
@@ -377,24 +428,46 @@ async fn generate(
     fingerprint: u64,
 ) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
-    let session = crate::ai_processing::get_or_init_denoise_model(
-        app_handle,
-        &state.ai_state,
-        &state.ai_init_lock,
-    )
-    .await
+    let rawnind = uses_rawnind(&source);
+    let session = if rawnind {
+        crate::ai_processing::get_or_init_raw_denoise_model(
+            app_handle,
+            &state.ai_state,
+            &state.ai_init_lock,
+        )
+        .await
+    } else {
+        crate::ai_processing::get_or_init_denoise_model(
+            app_handle,
+            &state.ai_state,
+            &state.ai_init_lock,
+        )
+        .await
+    }
     .map_err(|e| e.to_string())?;
+    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
 
     let progress_handle = app_handle.clone();
     let loaded_path = loaded_image.path.clone();
     let path = loaded_path.clone();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
-        let image = run_model(&loaded_image.image, &session, &|progress| {
+        let on_progress = |progress: f32| {
             let _ = progress_handle.emit(
                 "ai-denoise-progress",
                 serde_json::json!({ "path": path, "progress": progress }),
             );
-        })?;
+        };
+        let image = if rawnind {
+            run_rawnind(
+                &loaded_image.image,
+                &source,
+                &settings,
+                &session,
+                &on_progress,
+            )?
+        } else {
+            run_model(&loaded_image.image, &session, &on_progress)?
+        };
 
         let entry = Arc::new(DenoisedBase {
             key,
