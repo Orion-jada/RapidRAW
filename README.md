@@ -86,7 +86,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 
 Needs a Mac with an M1 chip or newer, on macOS 13 (Ventura) or later.
 
-1. Download the `.dmg` file (for example `RapidRAW_1.6.7_aarch64.dmg`) from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
+1. Download the `.dmg` file (for example `RapidRAW_1.6.8_aarch64.dmg`) from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
 2. Open it and drag **RapidRAW** into **Applications**.
 3. Open RapidRAW. The app isn't notarized by Apple, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the RapidRAW message, then confirm.
 
