@@ -489,13 +489,28 @@ fn denoise_image(
             .map_err(|e| e.to_string())?;
             DynamicImage::ImageRgb32F(denoised)
         } else {
-            crate::ai_processing::run_ai_denoise(
+            // NIND's own argument picks the tile quality; Strength mixes its result with the original.
+            let mut denoised = crate::ai_processing::run_ai_denoise(
                 &rgb_img_for_denoiser,
-                intensity,
+                1.0,
                 &session_arc,
-                &app_handle,
+                &|progress| {
+                    let _ = app_handle.emit(
+                        "denoise-progress",
+                        format!("Denoising… {:.0}%", progress * 100.0),
+                    );
+                },
             )
             .map_err(|e| e.to_string())?
+            .into_rgb32f();
+            let strength = intensity.clamp(0.0, 1.0);
+            if strength < 1.0 {
+                denoised
+                    .par_iter_mut()
+                    .zip(rgb_img_for_denoiser.par_iter())
+                    .for_each(|(d, &o)| *d = o + strength * (*d - o));
+            }
+            DynamicImage::ImageRgb32F(denoised)
         }
     } else if method == "raw9" {
         if !is_raw {
