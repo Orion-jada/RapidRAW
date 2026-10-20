@@ -213,9 +213,11 @@ pub async fn generate_ai_depth_mask(
                     return Err("Task cancelled".to_string());
                 }
 
-                let depth_img =
-                    run_depth_anything_model(warped_image.as_ref(), &models.depth_anything)
-                        .map_err(|e| e.to_string())?;
+                let depth_img = run_depth_anything_model(
+                    warped_image.as_ref(),
+                    &*models.depth_anything().map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
 
                 let new_cache = CachedDepthMap {
                     path_hash: path_hash.clone(),
@@ -236,8 +238,11 @@ pub async fn generate_ai_depth_mask(
                 return Err("Task cancelled".to_string());
             }
 
-            let depth_img = run_depth_anything_model(warped_image.as_ref(), &models.depth_anything)
-                .map_err(|e| e.to_string())?;
+            let depth_img = run_depth_anything_model(
+                warped_image.as_ref(),
+                &*models.depth_anything().map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
 
             let new_cache = CachedDepthMap {
                 path_hash: path_hash.clone(),
@@ -281,6 +286,7 @@ pub async fn generate_ai_depth_mask(
 
 #[tauri::command]
 pub async fn generate_full_image_depth_map(
+    js_adjustments: serde_json::Value,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
@@ -293,12 +299,15 @@ pub async fn generate_full_image_depth_map(
     .map_err(|e| e.to_string())?;
 
     let loaded_image = get_loaded_image(&state)?;
-    let source_image =
-        crate::mask_generation::build_full_source_image(&loaded_image.image, loaded_image.is_raw);
+    let source_image = crate::mask_generation::build_converted_source_image(
+        &loaded_image.image,
+        loaded_image.is_raw,
+        &js_adjustments,
+    );
 
     let depth_img = crate::ai_processing::run_depth_anything_model(
         source_image.as_ref(),
-        &models.depth_anything,
+        &*models.depth_anything().map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
 
@@ -307,6 +316,7 @@ pub async fn generate_full_image_depth_map(
 
 #[tauri::command]
 pub async fn generate_relight_normal_map(
+    js_adjustments: serde_json::Value,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
@@ -319,8 +329,11 @@ pub async fn generate_relight_normal_map(
     .map_err(|e| e.to_string())?;
 
     let loaded_image = get_loaded_image(&state)?;
-    let source_image =
-        crate::mask_generation::build_full_source_image(&loaded_image.image, loaded_image.is_raw);
+    let source_image = crate::mask_generation::build_converted_source_image(
+        &loaded_image.image,
+        loaded_image.is_raw,
+        &js_adjustments,
+    );
 
     let normal_img =
         crate::ai_processing::run_normal_model(source_image.as_ref(), normal_model.as_ref())
@@ -400,9 +413,11 @@ pub async fn generate_ai_subject_mask(
                 cached_embeddings.clone()
             } else {
                 drop(ai_state_lock);
-                let mut new_embeddings =
-                    generate_image_embeddings(warped_image.as_ref(), &models.sam_encoder)
-                        .map_err(|e| e.to_string())?;
+                let mut new_embeddings = generate_image_embeddings(
+                    warped_image.as_ref(),
+                    &*models.sam_encoder().map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
 
                 new_embeddings.path_hash = path_hash.clone();
 
@@ -413,9 +428,11 @@ pub async fn generate_ai_subject_mask(
             }
         } else {
             drop(ai_state_lock);
-            let mut new_embeddings =
-                generate_image_embeddings(warped_image.as_ref(), &models.sam_encoder)
-                    .map_err(|e| e.to_string())?;
+            let mut new_embeddings = generate_image_embeddings(
+                warped_image.as_ref(),
+                &*models.sam_encoder().map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
 
             new_embeddings.path_hash = path_hash.clone();
 
@@ -503,7 +520,7 @@ pub async fn generate_ai_subject_mask(
     let unrotated_end_point = (max_x, max_y);
 
     let mask_bitmap = run_sam_decoder(
-        &models.sam_decoder,
+        &*models.sam_decoder().map_err(|e| e.to_string())?,
         &embeddings,
         unrotated_start_point,
         unrotated_end_point,
@@ -570,8 +587,11 @@ pub async fn precompute_ai_subject_mask(
     }
 
     let warped_image = get_cached_full_warped_image(&state, &js_adjustments)?;
-    let mut new_embeddings = generate_image_embeddings(warped_image.as_ref(), &models.sam_encoder)
-        .map_err(|e| e.to_string())?;
+    let mut new_embeddings = generate_image_embeddings(
+        warped_image.as_ref(),
+        &*models.sam_encoder().map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
 
     new_embeddings.path_hash = path_hash.clone();
 

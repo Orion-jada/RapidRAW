@@ -14,7 +14,7 @@ use crate::app_state::AppState;
 use crate::as_shot::AsShot;
 use crate::gpu_processing::{RenderRequest, process_and_get_dynamic_image};
 use crate::image_processing::{
-    GpuContext, RenderOptions, downscale_f32_image, get_all_adjustments_from_json,
+    AutoAdjustMode, GpuContext, RenderOptions, downscale_f32_image, get_all_adjustments_from_json,
     srgb_channel_to_linear,
 };
 use crate::white_balance::{self, MIRED_PER_RELATIVE_UNIT, TINT_PER_RELATIVE_UNIT};
@@ -150,6 +150,7 @@ impl ProxyRenderer<'_> {
             RenderRequest {
                 adjustments: all,
                 mask_bitmaps: &no_masks,
+                mask_cache_key: None,
                 lut: self.lut.clone(),
                 roi: None,
             },
@@ -368,6 +369,7 @@ pub fn compute_auto_adjustments(
     as_shot: AsShot,
     render: RenderOptions,
     cache_key: u64,
+    mode: AutoAdjustMode,
 ) -> Result<Value, String> {
     let start = std::time::Instant::now();
     let proxy = downscale_f32_image(&proxy, PROXY_LONG_EDGE, PROXY_LONG_EDGE);
@@ -522,9 +524,22 @@ pub fn compute_auto_adjustments(
         working["tint"],
     );
 
+    // Subtle and Strong scale the corrections, as the original auto adjust's levels do.
+    let strength = match mode {
+        AutoAdjustMode::Subtle => 0.5,
+        AutoAdjustMode::Normal => 1.0,
+        AutoAdjustMode::Strong => 1.5,
+    };
     let mut result = serde_json::Map::new();
     for key in AUTO_KEYS {
-        result.insert(key.to_string(), working[key].clone());
+        let value = match working[key].as_f64() {
+            Some(value) if strength != 1.0 => {
+                let limit = if key == "exposure" { 5.0 } else { 100.0 };
+                json!(round_slider(key, value * strength).clamp(-limit, limit))
+            }
+            _ => working[key].clone(),
+        };
+        result.insert(key.to_string(), value);
     }
     result.insert("whiteBalance".to_string(), Value::Null);
     result.insert(

@@ -1,10 +1,13 @@
 use crate::AppState;
-use image::DynamicImage;
+use half::f16;
+use half::slice::HalfFloatSliceExt;
+use image::{DynamicImage, GenericImageView, Rgb32FImage, Rgba32FImage};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 
 pub const GEOMETRY_KEYS: &[&str] = &[
@@ -45,7 +48,7 @@ fn hash_ai_patches(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) 
                 .unwrap_or(true);
             is_visible.hash(hasher);
 
-            if let Some(patch_data) = patch.get("patchData") {
+            let mask_from_sub_masks = if let Some(patch_data) = patch.get("patchData") {
                 let color_len = patch_data
                     .get("color")
                     .and_then(|v| v.as_str())
@@ -59,6 +62,8 @@ fn hash_ai_patches(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) 
                     .unwrap_or("")
                     .len();
                 mask_len.hash(hasher);
+
+                color_len > 0 && mask_len == 0
             } else {
                 let data_len = patch
                     .get("patchDataBase64")
@@ -66,9 +71,10 @@ fn hash_ai_patches(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) 
                     .unwrap_or("")
                     .len();
                 data_len.hash(hasher);
-            }
+                true
+            };
 
-            if let Some(sub_masks_val) = patch.get("subMasks") {
+            if mask_from_sub_masks && let Some(sub_masks_val) = patch.get("subMasks") {
                 sub_masks_val.to_string().hash(hasher);
             }
 
@@ -87,6 +93,14 @@ fn hash_ai_denoise(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) 
     if enabled {
         hash_effect_keys(adjustments, &["aiDenoiseAmount", "aiDenoiseDetail"], hasher);
         crate::ai_denoise::cache_epoch().hash(hasher);
+    }
+}
+
+fn hash_negative_conversion(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) {
+    let enabled = crate::negative_conversion::is_enabled(adjustments);
+    enabled.hash(hasher);
+    if enabled {
+        hash_effect_keys(adjustments, crate::negative_conversion::PARAM_KEYS, hasher);
     }
 }
 
@@ -127,6 +141,7 @@ pub fn calculate_patch_hash(adjustments: &serde_json::Value) -> u64 {
 
     hash_ai_patches(adjustments, &mut hasher);
     hash_ai_denoise(adjustments, &mut hasher);
+    hash_negative_conversion(adjustments, &mut hasher);
 
     let uses_generated_masks = adjustments
         .get("aiPatches")
@@ -262,29 +277,6 @@ pub fn calculate_thumbnail_base_hash(adjustments: &serde_json::Value) -> u64 {
     hasher.finish()
 }
 
-pub fn calculate_visual_hash(path: &str, adjustments: &serde_json::Value) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    path.hash(&mut hasher);
-
-    if let Some(obj) = adjustments.as_object() {
-        for (key, value) in obj {
-            if GEOMETRY_KEYS.contains(&key.as_str()) {
-                continue;
-            }
-
-            match key.as_str() {
-                "crop" | "rotation" | "orientationSteps" | "flipHorizontal" | "flipVertical" => (),
-                _ => {
-                    key.hash(&mut hasher);
-                    value.to_string().hash(&mut hasher);
-                }
-            }
-        }
-    }
-
-    hasher.finish()
-}
-
 pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
 
@@ -388,6 +380,7 @@ pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
 
     hash_ai_patches(adjustments, &mut hasher);
     hash_ai_denoise(adjustments, &mut hasher);
+    hash_negative_conversion(adjustments, &mut hasher);
 
     hasher.finish()
 }
@@ -397,6 +390,96 @@ pub fn calculate_full_job_hash(path: &str, adjustments: &serde_json::Value) -> u
     path.hash(&mut hasher);
     adjustments.to_string().hash(&mut hasher);
     hasher.finish()
+}
+
+const HALF_CONVERSION_CHUNK: usize = 64 * 1024;
+
+static DECODED_CACHE_BUDGET_BYTES: LazyLock<usize> = LazyLock::new(|| {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    let total = sys.total_memory() as usize;
+    if total > 0 {
+        total / 5
+    } else {
+        2 * 1024 * 1024 * 1024
+    }
+});
+
+enum CachedImage {
+    Full(Arc<DynamicImage>),
+    Half {
+        width: u32,
+        height: u32,
+        channels: usize,
+        data: Vec<f16>,
+    },
+}
+
+impl CachedImage {
+    fn byte_size(&self) -> usize {
+        match self {
+            CachedImage::Full(image) => image.as_bytes().len(),
+            CachedImage::Half { data, .. } => data.len() * std::mem::size_of::<f16>(),
+        }
+    }
+
+    fn compact(self) -> Self {
+        let CachedImage::Full(image) = self else {
+            return self;
+        };
+        if Arc::strong_count(&image) > 1 {
+            return CachedImage::Full(image);
+        }
+
+        let (width, height) = image.dimensions();
+        let (channels, raw) = match image.as_ref() {
+            DynamicImage::ImageRgb32F(buffer) => (3, buffer.as_raw()),
+            DynamicImage::ImageRgba32F(buffer) => (4, buffer.as_raw()),
+            _ => return CachedImage::Full(image),
+        };
+
+        let mut data = vec![f16::ZERO; raw.len()];
+        data.par_chunks_mut(HALF_CONVERSION_CHUNK)
+            .zip(raw.par_chunks(HALF_CONVERSION_CHUNK))
+            .for_each(|(dst, src)| dst.convert_from_f32_slice(src));
+
+        CachedImage::Half {
+            width,
+            height,
+            channels,
+            data,
+        }
+    }
+
+    fn expand(&self) -> Arc<DynamicImage> {
+        match self {
+            CachedImage::Full(image) => Arc::clone(image),
+            CachedImage::Half {
+                width,
+                height,
+                channels,
+                data,
+            } => {
+                let mut raw = vec![0.0f32; data.len()];
+                raw.par_chunks_mut(HALF_CONVERSION_CHUNK)
+                    .zip(data.par_chunks(HALF_CONVERSION_CHUNK))
+                    .for_each(|(dst, src)| src.convert_to_f32_slice(dst));
+
+                let image = if *channels == 4 {
+                    DynamicImage::ImageRgba32F(
+                        Rgba32FImage::from_raw(*width, *height, raw)
+                            .expect("RGBA buffer matches image dimensions"),
+                    )
+                } else {
+                    DynamicImage::ImageRgb32F(
+                        Rgb32FImage::from_raw(*width, *height, raw)
+                            .expect("RGB buffer matches image dimensions"),
+                    )
+                };
+                Arc::new(image)
+            }
+        }
+    }
 }
 
 /// Size and modification time of a file, to tell when a cached decode of it has gone stale.
@@ -410,7 +493,7 @@ pub fn file_stamp(path: &Path) -> Option<FileStamp> {
 struct DecodedImage {
     path: String,
     stamp: Option<FileStamp>,
-    image: Arc<DynamicImage>,
+    image: CachedImage,
     exif: HashMap<String, String>,
 }
 
@@ -432,9 +515,16 @@ impl DecodedImageCache {
 
     pub fn set_capacity(&mut self, capacity: usize) {
         self.capacity = capacity;
-        while self.items.len() > self.capacity {
-            self.items.remove(0);
-        }
+        self.evict();
+    }
+
+    /// Whether `get` would find the image, without expanding it.
+    pub fn contains(&self, path: &str, stamp: Option<FileStamp>) -> bool {
+        stamp.is_some()
+            && self
+                .items
+                .iter()
+                .any(|item| item.path == path && item.stamp == stamp)
     }
 
     pub fn get(
@@ -443,13 +533,38 @@ impl DecodedImageCache {
         stamp: Option<FileStamp>,
     ) -> Option<(Arc<DynamicImage>, HashMap<String, String>)> {
         let pos = self.items.iter().position(|item| item.path == path)?;
-        let item = self.items.remove(pos);
-        if stamp.is_none() || item.stamp != stamp {
+        let DecodedImage {
+            path,
+            stamp: cached_stamp,
+            image: cached,
+            exif,
+        } = self.items.remove(pos);
+        if stamp.is_none() || cached_stamp != stamp {
             return None;
         }
-        let result = (item.image.clone(), item.exif.clone());
-        self.items.push(item);
-        Some(result)
+        let image = cached.expand();
+        drop(cached);
+        self.items.push(DecodedImage {
+            path,
+            stamp,
+            image: CachedImage::Full(Arc::clone(&image)),
+            exif: exif.clone(),
+        });
+        Some((image, exif))
+    }
+
+    pub fn compact_except(&mut self, keep_path: &str) {
+        if let Some(pos) = self.items.iter().position(|item| item.path == keep_path) {
+            let item = self.items.remove(pos);
+            self.items.push(item);
+        }
+        for item in self.items.iter_mut() {
+            if item.path != keep_path {
+                let cached = std::mem::replace(&mut item.image, CachedImage::Full(Arc::default()));
+                item.image = cached.compact();
+            }
+        }
+        self.evict();
     }
 
     pub fn clear(&mut self) {
@@ -465,15 +580,30 @@ impl DecodedImageCache {
     ) {
         if let Some(pos) = self.items.iter().position(|item| item.path == path) {
             self.items.remove(pos);
-        } else if self.items.len() >= self.capacity {
-            self.items.remove(0);
         }
         self.items.push(DecodedImage {
             path,
             stamp,
-            image,
+            image: CachedImage::Full(image),
             exif,
         });
+        self.evict();
+    }
+
+    fn evict(&mut self) {
+        while self.items.len() > self.capacity.max(1) {
+            self.items.remove(0);
+        }
+        while self.items.len() > 1
+            && self
+                .items
+                .iter()
+                .map(|item| item.image.byte_size())
+                .sum::<usize>()
+                > *DECODED_CACHE_BUDGET_BYTES
+        {
+            self.items.remove(0);
+        }
     }
 }
 
@@ -482,10 +612,7 @@ pub fn clear_preview_stage_caches(state: &AppState) {
         .patched_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
-    *state
-        .patched_warped_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
+    *state.warped_cache.lock().unwrap_or_else(|e| e.into_inner()) = None;
     *state
         .working_cache
         .lock()
@@ -574,6 +701,40 @@ mod decoded_image_cache_tests {
             value(cache.get(&key, None)),
             None,
             "a file that can't be read never hits"
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_compacted_photo_comes_back_for_the_same_file() {
+        let dir =
+            std::env::temp_dir().join(format!("rapidraw-compact-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("photo.nef");
+        std::fs::write(&file, b"raw bytes").unwrap();
+        let key = file.to_string_lossy().to_string();
+
+        let photo = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            2,
+            2,
+            image::Rgb([0.25, 0.5, 0.75]),
+        ));
+        let mut cache = DecodedImageCache::new(5);
+        cache.insert(
+            key.clone(),
+            file_stamp(&file),
+            Arc::new(photo),
+            HashMap::new(),
+        );
+        cache.compact_except("another photo");
+        assert!(matches!(cache.items[0].image, CachedImage::Half { .. }));
+
+        assert!(cache.contains(&key, file_stamp(&file)));
+        let (restored, _) = cache.get(&key, file_stamp(&file)).expect("still cached");
+        assert_eq!(
+            restored.as_rgb32f().unwrap().get_pixel(1, 1).0,
+            [0.25, 0.5, 0.75]
         );
 
         std::fs::remove_dir_all(&dir).unwrap();
