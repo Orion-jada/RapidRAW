@@ -41,21 +41,23 @@ const BIREFNET_SHA256: &str = "5b243f8c509c05374f0c42c692e9c2dbf4c58ad151fd6531b
 // SkyWater-Seg (SegFormer-B2): background/sky/water/person segmentation trained on photos, so
 // reflections in glass and bright windows stay out of the sky mask. Fixed to a 512x512 input so
 // CoreML runs the whole graph; weights are stored as float16 and cast back to float32 at load.
-const SKY_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/sky-v1/skywater_segformer_b2_512.onnx";
+// Gemm weights are stored transposed (transB=1), which keeps them in CoreML's weight file.
+const SKY_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/sky-v2/skywater_segformer_b2_512.onnx";
 const SKY_FILENAME: &str = "skywater_segformer_b2_512.onnx";
-const SKY_SHA256: &str = "4bfe7161e50516f84d7af32589b6d6b527dcd91ee0c892330388a268a9aeb26d";
+const SKY_SHA256: &str = "2cc52717a36a63bbba9b41cad3a4b29dfb15a9bd94e9d45cca6512e2dc98d8e4";
 const SKY_INPUT_SIZE: u32 = 512;
 const SKY_NUM_CLASSES: usize = 4;
 const SKY_CLASS: usize = 1;
 
 // SigLIP 2 (ViT-B/16, 224px) for natural-language photo search. The vision tower is fixed to a
 // 1x3x224x224 input and patched so CoreML runs all of it, with float16 weights cast back to
-// float32 at load. The multilingual text tower (int8) and its tokenizer come unchanged from
+// float32 at load and Gemm weights stored transposed (transB=1) to keep them in CoreML's weight
+// file. The multilingual text tower (int8) and its tokenizer come unchanged from
 // onnx-community's export, pinned to a revision.
-const SEARCH_VISION_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/search-v1/siglip2_vision_b16_224.onnx";
+const SEARCH_VISION_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/search-v2/siglip2_vision_b16_224.onnx";
 const SEARCH_VISION_FILENAME: &str = "siglip2_vision_b16_224.onnx";
 const SEARCH_VISION_SHA256: &str =
-    "2d507cd867c4f4b4f0f315ad5d18237ec2b359b157dfa23750a200cdc9b56197";
+    "64aff7852f9c43198b968227f2bfb3f19d93d5455e65d5dd26cfbba43f2284f1";
 const SEARCH_TEXT_URL: &str = "https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/ba1f3b0843f24bc5417d38e19c37b287d719b2f4/onnx/text_model_quantized.onnx";
 const SEARCH_TEXT_FILENAME: &str = "siglip2_text_b16_int8.onnx";
 const SEARCH_TEXT_SHA256: &str = "3a0603d3a00c05a80a6ded4743c16aaac7b1e62cdcc7e362e7ce418659b96400";
@@ -502,7 +504,15 @@ const SUPERSEDED_MODELS: &[(&[&str], &str)] = &[
     ),
 ];
 
-/// Frees the disk space taken by models in `SUPERSEDED_MODELS`. Nothing else is touched.
+/// Compiled CoreML models live in this folder of the models folder, one subfolder per model hash.
+/// It's renamed whenever the way models are handed to CoreML changes, so every model is compiled
+/// afresh; the folders in `OLD_COREML_CACHES` are deleted at startup.
+const COREML_CACHE: &str = "coreml_cache_v2";
+/// `coreml_cache` holds models compiled with MatMul + Add fused, at up to 4.8 GB each.
+const OLD_COREML_CACHES: &[&str] = &["coreml_cache"];
+
+/// Frees the disk space taken by models in `SUPERSEDED_MODELS` and by old CoreML caches. Nothing
+/// else is touched.
 pub fn remove_superseded_models(app_handle: &tauri::AppHandle) {
     if let Ok(data_dir) = app_handle.path().app_data_dir() {
         remove_superseded_models_in(&data_dir.join("models"));
@@ -510,22 +520,22 @@ pub fn remove_superseded_models(app_handle: &tauri::AppHandle) {
 }
 
 fn remove_superseded_models_in(models_dir: &Path) {
-    for (filenames, sha256) in SUPERSEDED_MODELS {
-        let coreml_cache = models_dir.join("coreml_cache").join(&sha256[..16]);
-        for path in filenames
+    let superseded = SUPERSEDED_MODELS.iter().flat_map(|(filenames, sha256)| {
+        filenames
             .iter()
             .map(|filename| models_dir.join(filename))
-            .chain([coreml_cache])
-        {
-            let removed = match fs::symlink_metadata(&path) {
-                Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
-                Ok(_) => fs::remove_file(&path),
-                Err(_) => continue,
-            };
-            match removed {
-                Ok(()) => log::info!("Removed superseded model {}", path.display()),
-                Err(e) => log::warn!("Failed to remove {}: {}", path.display(), e),
-            }
+            .chain([models_dir.join(COREML_CACHE).join(&sha256[..16])])
+    });
+    let old_caches = OLD_COREML_CACHES.iter().map(|dir| models_dir.join(dir));
+    for path in superseded.chain(old_caches) {
+        let removed = match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
+            Ok(_) => fs::remove_file(&path),
+            Err(_) => continue,
+        };
+        match removed {
+            Ok(()) => log::info!("Removed superseded {}", path.display()),
+            Err(e) => log::warn!("Failed to remove {}: {}", path.display(), e),
         }
     }
 }
@@ -570,10 +580,12 @@ fn coreml_cache_dir(model_path: &Path, model_sha256: &str) -> PathBuf {
     model_path
         .parent()
         .unwrap_or(Path::new("."))
-        .join("coreml_cache")
+        .join(COREML_CACHE)
         .join(&model_sha256[..16])
 }
 
+/// A failed build deletes the cache, so the next attempt compiles from scratch instead of
+/// reusing a broken one.
 #[cfg(target_os = "macos")]
 fn build_coreml_session(
     model_path: &Path,
@@ -592,14 +604,62 @@ fn build_coreml_session(
         .build()
         .error_on_failure();
 
-    Ok(Session::builder()?
+    // ORT fuses MatMul + Add into Gemm, and its CoreML EP passes a Gemm weight to CoreML by
+    // transposing it and writing it into the model as text instead of into weight.bin. For a
+    // ViT that's gigabytes of cache and minutes of compiling. Unfused, CoreML gets matmul + add
+    // with the weights in weight.bin, and the output and speed are identical. (The value is a
+    // `;`-separated list.)
+    let session = Session::builder()?
+        .with_config_entry(
+            "optimization.disable_specified_optimizers",
+            "MatMulAddFusion",
+        )?
         .with_execution_providers([coreml])?
-        .commit_from_file(model_path)?)
+        .commit_from_file(model_path);
+    match session {
+        Ok(session) => {
+            remove_coreml_sources(&cache_dir);
+            Ok(session)
+        }
+        Err(e) => {
+            let _ = fs::remove_dir_all(&cache_dir);
+            Err(e.into())
+        }
+    }
 }
 
-/// Like `build_session`, for models CoreML takes over a minute to prepare on first load (and
-/// again whenever macOS drops its cache). Returns a CPU session at once and swaps in the CoreML
-/// one when it's ready, so nothing waits on the compile.
+/// ORT keeps the CoreML model it wrote (`Manifest.json`, `Data`) next to the compiled copy it
+/// runs (`compiled_model.mlmodelc`), and once the compiled copy exists it never reads the source
+/// again, so deleting it halves the cache. `model` itself must stay: it's how ORT tells the
+/// model is cached.
+#[cfg(target_os = "macos")]
+fn remove_coreml_sources(cache_dir: &Path) {
+    let partitions = fs::read_dir(cache_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|model| fs::read_dir(model.path()).ok())
+        .flatten()
+        .flatten();
+    for partition in partitions {
+        let package = partition.path().join("model");
+        if !package.join("compiled_model.mlmodelc").is_dir() {
+            continue;
+        }
+        for source in ["Manifest.json", "Data", "tmp"] {
+            let path = package.join(source);
+            let _ = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
+                Ok(_) => fs::remove_file(&path),
+                Err(_) => continue,
+            };
+        }
+    }
+}
+
+/// Like `build_session`, for big models CoreML takes several seconds to prepare on first load
+/// (and again whenever macOS drops its cache). Returns a CPU session at once and swaps in the
+/// CoreML one when it's ready, so nothing waits on the compile.
 fn build_session_upgrading(
     model_path: &Path,
     model_sha256: &str,
@@ -623,7 +683,6 @@ fn build_session_upgrading(
                     }
                 }
                 Err(e) => {
-                    let _ = fs::remove_dir_all(coreml_cache_dir(&path, &sha));
                     log::warn!(
                         "CoreML failed for {}, staying on CPU: {}",
                         path.display(),
@@ -1283,7 +1342,7 @@ pub async fn get_or_init_depth_model(
     .await?;
 
     let _ = ort::init().with_name("AI-Depth").commit();
-    // CoreML takes minutes to compile this model the first time, so it starts on CPU.
+    // CoreML takes several seconds to prepare this model the first time, so it starts on CPU.
     let depth_model = build_session_upgrading(
         &models_dir.join(DEPTH_FILENAME),
         DEPTH_SHA256,
@@ -3389,5 +3448,66 @@ mod depth_map_tests {
             "the bottom row is the nearest"
         );
         assert!(map.get_pixel(20, 30)[0] > map.get_pixel(20, 20)[0]);
+    }
+}
+
+#[cfg(test)]
+mod model_cache_tests {
+    use super::*;
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rapidraw-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn startup_removes_superseded_models_and_old_coreml_caches_only() {
+        let models = scratch_dir("superseded-test");
+        let (old_filenames, old_sha256) = SUPERSEDED_MODELS[0];
+        let old_cache = models.join(COREML_CACHE).join(&old_sha256[..16]);
+        let current_cache = models.join(COREML_CACHE).join(&DEPTH_SHA256[..16]);
+        let unfixed_cache = models.join(OLD_COREML_CACHES[0]).join(&DEPTH_SHA256[..16]);
+        for dir in [&old_cache, &current_cache, &unfixed_cache] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        fs::write(models.join(old_filenames[0]), b"old").unwrap();
+        fs::write(models.join(DEPTH_FILENAME), b"current").unwrap();
+
+        remove_superseded_models_in(&models);
+
+        assert!(!models.join(old_filenames[0]).exists());
+        assert!(!old_cache.exists());
+        assert!(!models.join(OLD_COREML_CACHES[0]).exists());
+        assert!(models.join(DEPTH_FILENAME).exists());
+        assert!(current_cache.exists());
+        fs::remove_dir_all(&models).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_compiled_coreml_models_lose_their_source() {
+        let cache = scratch_dir("coreml-sources-test");
+        let compiled = cache.join("123/0_dynamic_mlprogram/model");
+        let uncompiled = cache.join("123/1_dynamic_mlprogram/model");
+        for package in [&compiled, &uncompiled] {
+            fs::create_dir_all(package.join("Data/com.microsoft.OnnxRuntime/weights")).unwrap();
+            fs::write(package.join("Manifest.json"), b"{}").unwrap();
+        }
+        fs::create_dir_all(compiled.join("compiled_model.mlmodelc/weights")).unwrap();
+        fs::write(cache.join("123/model.txt"), b"model path").unwrap();
+
+        remove_coreml_sources(&cache);
+
+        assert!(!compiled.join("Data").exists());
+        assert!(!compiled.join("Manifest.json").exists());
+        assert!(compiled.join("compiled_model.mlmodelc/weights").is_dir());
+        assert!(
+            uncompiled.join("Data").is_dir() && uncompiled.join("Manifest.json").exists(),
+            "a model that isn't compiled yet still needs its source"
+        );
+        assert!(cache.join("123/model.txt").exists());
+        fs::remove_dir_all(&cache).unwrap();
     }
 }
