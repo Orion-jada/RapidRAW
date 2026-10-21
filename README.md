@@ -51,19 +51,20 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 ### Faster AI on Apple Silicon
 
 - **GPU acceleration with CoreML:** AI models run on the Mac's GPU instead of the CPU. AI denoise is 16× faster (82.6 s → 5.2 s for a 32 MP photo on an M3 Max), depth estimation 3× and masks about 2×. Models that don't benefit stay on the CPU. Set `RAPIDRAW_AI_CPU_ONLY=1` to force the CPU for everything.
+- **GPU caches prepared in seconds:** The first time each model is used, macOS now prepares it for the GPU in 5 s or less (Depth Anything 3 used to take over 4 minutes), and the prepared copies take about a third of the space: about 3.4 GB for all models instead of 9.5 GB. The old copies are deleted when this version first starts, and each model is prepared again once.
 
 ### Better Masks
 
 - **Subject mask with SAM 2.1:** Replaces SAM 1 with SAM 2.1 (Hiera Base+). Dragging a box now takes about 0.6 s instead of 2 s.
 - **Foreground mask with BiRefNet:** Replaces U²-Net with BiRefNet (1024 px), at about 0.55 s per full-resolution mask on the GPU.
 - **Sky mask with SkyWater-Seg:** Replaces U²-Net with SkyWater-Seg. It picks up small patches of sky, gives clean edges around antennas and rooftops, and no longer marks bright windows or reflections as sky. About 0.5 s per mask.
-- **Depth with Depth Anything 3:** Depth masks, lens blur and fog use Depth Anything 3 Mono-Large instead of Depth Anything V2 Small. Outlines of hair, ears and hands are much crisper, and people stand out from busy backgrounds, which V2 often put at the same distance. The model is downloaded only when you first use depth (670 MB) and takes about 0.2 s per photo on the GPU. On a Mac, macOS needs a few minutes to prepare it the first time; depth works on the CPU meanwhile, at a few seconds per photo. Depth masks, lens blur and fog made before keep their saved depth map; click **Recalculate depth** under any of them to redo it with Depth Anything 3.
+- **Depth with Depth Anything 3:** Depth masks, lens blur and fog use Depth Anything 3 Mono-Large instead of Depth Anything V2 Small. Outlines of hair, ears and hands are much crisper, and people stand out from busy backgrounds, which V2 often put at the same distance. The model is downloaded only when you first use depth (670 MB) and takes about 0.2 s per photo on the GPU. On a Mac, macOS prepares it for the GPU in about 5 s the first time; depth works on the CPU meanwhile. Depth masks, lens blur and fog made before keep their saved depth map; click **Recalculate depth** under any of them to redo it with Depth Anything 3.
 - **Subtract from masks:** A **Subtract** button next to "Add New Component" takes away any component type from a mask: brush, linear, radial, AI masks or ranges. Use a brush to trim a subject mask that grabbed too much, or combine linear gradients to shape an exact area. Soft edges fade out instead of leaving hard holes.
 - **Polygon mask:** Click around an area to outline it with straight edges, then click the first point, double-click or press Enter to close it. Drag points to reshape it, drag an edge's middle handle to add a point, double-click a point to remove it, and use Feather to soften the edge. It also works for AI generative replace.
 
 ### Editing and Export
 
-- **Relight with MoGe-3:** Relight's surface normals come from MoGe-3 ViT-L instead of MoGe-2 ViT-S. Faces get noses, eye sockets and ears instead of smooth blobs, and folds in clothes and woven baskets catch the light, so lights look like they fall on real shapes. The model is downloaded the first time you use Relight (663 MB) and takes about 4 s per photo on the CPU, once per photo (MoGe-2 took about 1.3 s). Photos relit before keep their saved normal map; click **Recalculate normals** in Relight to redo it with MoGe-3.
+- **Relight with MoGe-3:** Relight's surface normals come from MoGe-3 ViT-L instead of MoGe-2 ViT-S. Faces get noses, eye sockets and ears instead of smooth blobs, and folds in clothes and woven baskets catch the light, so lights look like they fall on real shapes. The model is downloaded the first time you use Relight (663 MB) and takes about 0.4 s per photo on a Mac's GPU, once per photo. Square photos and panoramas run on the CPU and take about 4 s. Photos relit before keep their saved normal map; click **Recalculate normals** in Relight to redo it with MoGe-3.
 - **Rebuilt auto-enhance:** Auto-enhance now renders a small preview through the real editing pipeline and tunes exposure, contrast, highlights, shadows, whites and blacks, vibrance and white balance against what the photo actually looks like, in about 0.16 s. Night shots stay dark, and clarity, dehaze and vignette are left alone. Upstream's Subtle, Normal and Strong modes scale its corrections to half, full or one and a half strength. Also available in batch and from the command line (`--auto`).
 - **AI denoise for RAW files with RawNIND:** RAW files are denoised by RawNIND on the linear image before tone mapping, which keeps highlight detail (about 2 s for 24 MP). The AI slider is now a simple Strength control. Other files still use NIND.
 - **RawNIND Bayer denoise:** a second RawNIND option in the Denoise menu that cleans the camera's sensor data before it is turned into colour (demosaiced), as darktable does. It removes more colour noise in dark areas and takes about 0.5 s for 24 MP. It works with Bayer sensors (most cameras); for others, such as Fujifilm X-Trans, it uses regular RawNIND.
@@ -80,7 +81,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 
 - **Updates come from this fork:** The "new version available" notice checks this repository, not the original, so it never points you to a version without these upgrades.
 - **Daily sync with the original:** A GitHub workflow merges new commits from the original RapidRAW once a day, whenever they merge cleanly and the app still builds.
-- **Old models cleaned up:** Models replaced by the ones above (SAM 1 and both U²-Net models) are deleted at startup, freeing about 460 MB plus their GPU caches.
+- **Old models cleaned up:** Models replaced by the ones above (SAM 1, both U²-Net models, Depth Anything V2 Small and MoGe-2 ViT-S) are deleted at startup, along with their GPU caches.
 
 ## Download
 
@@ -88,7 +89,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 
 Needs a Mac with an M1 chip or newer, on macOS 13 (Ventura) or later.
 
-1. Download the `.dmg` file (for example `RapidRAW_1.6.8_aarch64.dmg`) from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
+1. Download the `.dmg` file (for example `RapidRAW_1.6.9_aarch64.dmg`) from the [**latest release**](https://github.com/Orion-jada/RapidRAW/releases/latest).
 2. Open it and drag **RapidRAW** into **Applications**.
 3. Open RapidRAW. The app isn't notarized by Apple, so macOS blocks the first launch. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the RapidRAW message, then confirm.
 
