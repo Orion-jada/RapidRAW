@@ -134,11 +134,14 @@ const DEPTH_INPUT_HEIGHT: u32 = 504;
 /// Sky head scores at or above this are sky, as in Depth Anything 3's own pipeline.
 const DEPTH_SKY_THRESHOLD: f32 = 0.3;
 
-const NORMAL_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/moge-2-vits-normal-onnx.onnx?download=true";
-const NORMAL_FILENAME: &str = "moge-2-vits-normal-onnx.onnx";
+// MoGe-3 ViT-L (MIT): normals and points for Relight, without MoGe-3's CUDA-only sparse
+// refiner, which only refines depth. Takes any photo shape, so it runs on the CPU (~4s);
+// CoreML only compiles fixed shapes. Weights are stored as float16 and cast back at load.
+const NORMAL_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/moge3-v1/moge3_vitl_normal.onnx";
+const NORMAL_FILENAME: &str = "moge3_vitl_normal.onnx";
 const NORMAL_MAX_SIZE: u32 = 768;
 const NORMAL_NUM_TOKENS: i64 = 2500;
-const NORMAL_SHA256: &str = "24eacb5dc7a2c54c7bc98f7de085ffbed79ad006ea5b664c2c2cdc02ff3a52f0";
+const NORMAL_SHA256: &str = "651ee8b995f32ef12041f91b47fe080f97aaf402c1e49355d9c18439fdfed08e";
 
 type SharedSession = Arc<Mutex<Session>>;
 
@@ -490,6 +493,11 @@ const SUPERSEDED_MODELS: &[(&[&str], &str)] = &[
     (
         &["depth_anything_v2_vits.onnx"],
         "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b526304f2562be",
+    ),
+    // MoGe-2 ViT-S, replaced by MoGe-3 ViT-L
+    (
+        &["moge-2-vits-normal-onnx.onnx"],
+        "24eacb5dc7a2c54c7bc98f7de085ffbed79ad006ea5b664c2c2cdc02ff3a52f0",
     ),
 ];
 

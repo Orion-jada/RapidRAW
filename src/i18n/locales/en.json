@@ -466,6 +466,8 @@
       },
       "recalculateDepth": "Recalculate depth",
       "recalculateDepthTooltip": "Calculate the depth map again with the current AI model",
+      "recalculateNormals": "Recalculate normals",
+      "recalculateNormalsTooltip": "Calculate the normal map again with the current AI model",
       "resetInpaintingTooltip": "Reset Inpainting",
       "settings": {
         "aiModelDownloading": "AI Model Downloading: ",
@@ -2005,6 +2007,7 @@
         "lama": "For the powerful & simple image inpainting model, which enables content-aware fill and object removal.",
         "lensfun": "For its invaluable open-source library and comprehensive database for automatic lens correction.",
         "libgphoto2": "For the comprehensive camera communication library powering RapidRAW's tethering and remote capture subsystem.",
+        "moge": "For the monocular geometry model that gives Relight its surface normals.",
         "negpy": "For the inspiration behind the negative conversion logic.",
         "nind": "For providing AI models that power the AI noise reduction capabilities in RapidRAW.",
         "rawler": "For the excellent Rust crate that provides the foundation for RAW file processing in this project.",

@@ -466,6 +466,8 @@
       },
       "recalculateDepth": "Tiefe neu berechnen",
       "recalculateDepthTooltip": "Die Tiefenkarte mit dem aktuellen KI-Modell neu berechnen",
+      "recalculateNormals": "Normalen neu berechnen",
+      "recalculateNormalsTooltip": "Die Normalenkarte mit dem aktuellen KI-Modell neu berechnen",
       "resetInpaintingTooltip": "Reparieren zurücksetzen",
       "settings": {
         "aiModelDownloading": "KI-Modell wird heruntergeladen: ",
@@ -2005,6 +2007,7 @@
         "lama": "Für das leistungsstarke Bild-Inpainting-Modell.",
         "lensfun": "Für die unschätzbare Open-Source-Bibliothek für Objektivkorrektur.",
         "libgphoto2": "Für die umfassende Kamera-Kommunikationsbibliothek, die RapidRAWs Tethering und Fernauslösung ermöglicht.",
+        "moge": "Für das Modell zur monokularen Geometrieschätzung (Oberflächennormalen für Neu beleuchten).",
         "negpy": "Für die Inspiration hinter der Negativumwandlungslogik.",
         "nind": "Für die Bereitstellung von KI-Modellen für die Rauschreduzierung.",
         "rawler": "Für die hervorragende Rust-Crate zur RAW-Bildverarbeitung.",

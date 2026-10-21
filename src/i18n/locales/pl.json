@@ -508,6 +508,8 @@
       },
       "recalculateDepth": "Przelicz głębię",
       "recalculateDepthTooltip": "Oblicz ponownie mapę głębi bieżącym modelem AI",
+      "recalculateNormals": "Przelicz normalne",
+      "recalculateNormalsTooltip": "Oblicz ponownie mapę normalnych bieżącym modelem AI",
       "resetInpaintingTooltip": "Resetuj Inpainting",
       "settings": {
         "aiModelDownloading": "Pobieranie modelu AI: ",
@@ -2077,6 +2079,7 @@
         "lama": "Za niesamowity model do inpaintingu obrazu, umożliwiający usuwanie obiektów z uwzględnieniem kontekstu.",
         "lensfun": "Za nieocenioną bibliotekę open-source z bogatą bazą obiektywów do automatycznej korekcji.",
         "libgphoto2": "Za kompleksową bibliotekę komunikacji z aparatami, napędzającą tethering i zdalne wyzwalanie w RapidRAW.",
+        "moge": "Za model geometrii monokularnej, który dostarcza normalne powierzchni dla funkcji Ponowne oświetlenie.",
         "negpy": "Za inspirację stojącą za rozwiązaniem do inwersji negatywów.",
         "nind": "Za dostarczenie modeli AI, które stanowią silnik odszumiający RapidRAW.",
         "rawler": "Za świetną bibliotekę w Rust, dostarczającą fundament dla przetwarzania plików RAW w tym projekcie.",

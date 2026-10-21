@@ -27,7 +27,7 @@ import Text from '../ui/Text';
 import AdjustmentSubSection from './AdjustmentSubSection';
 import { TextVariants } from '../../types/typography';
 import { DepthRangePicker } from '../ui/DepthRangePicker';
-import RecalculateDepthButton from '../ui/RecalculateDepthButton';
+import RecalculateMapButton from '../ui/RecalculateMapButton';
 import { useProcessStore } from '../../store/useProcessStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -533,7 +533,7 @@ function EffectsPanel({
                         onDragStateChange={onDragStateChange}
                       />
 
-                      <RecalculateDepthButton onClick={handleGenerateLensBlurDepthMap} />
+                      <RecalculateMapButton map="depth" onClick={handleGenerateLensBlurDepthMap} />
                     </>
                   )}
                 </SpatialEffect>
@@ -815,6 +815,8 @@ function EffectsPanel({
                             </Text>
                           )}
                         </div>
+
+                        <RecalculateMapButton map="normals" onClick={handleGenerateRelightNormalMap} />
                       </>
                     )}
                   </div>
@@ -938,7 +940,7 @@ function EffectsPanel({
                         onDragStateChange={onDragStateChange}
                       />
 
-                      <RecalculateDepthButton onClick={handleGenerateFogDepthMap} />
+                      <RecalculateMapButton map="depth" onClick={handleGenerateFogDepthMap} />
                     </>
                   )}
                 </SpatialEffect>

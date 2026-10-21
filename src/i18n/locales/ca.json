@@ -467,6 +467,8 @@
       },
       "recalculateDepth": "Recalcula la profunditat",
       "recalculateDepthTooltip": "Torna a calcular el mapa de profunditat amb el model d'IA actual",
+      "recalculateNormals": "Recalcula les normals",
+      "recalculateNormalsTooltip": "Torna a calcular el mapa de normals amb el model d'IA actual",
       "resetInpaintingTooltip": "Restablir Inpainting",
       "settings": {
         "aiModelDownloading": "S'està baixant el model d'IA: ",
@@ -2008,6 +2010,7 @@
         "lama": "Per al potent i senzill model d'inpainting d'imatges, que permet el farciment i l'eliminació d'objectes segons el contingut.",
         "lensfun": "Per la seva inestimable biblioteca de codi obert i la completa base de dades per a la correcció automàtica d'objectius.",
         "libgphoto2": "Per la completa biblioteca de comunicació amb càmeres que impulsa el sistema de tethering i captura remota de RapidRAW.",
+        "moge": "Pel model de geometria monocular que proporciona les normals de superfície de Reil·luminar.",
         "negpy": "Per la inspiració que hi ha darrere de la lògica de conversió de negatius.",
         "nind": "Per proporcionar els models d'IA que impulsen les capacitats de reducció de soroll per IA a RapidRAW.",
         "rawler": "Per l'excel·lent component de Rust que proporciona la base per al processament de fitxers RAW en aquest projecte.",

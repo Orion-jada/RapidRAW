@@ -303,16 +303,19 @@ pub async fn generate_relight_normal_map(
     .await
     .map_err(|e| e.to_string())?;
 
+    // ~4s on the CPU, so it runs off the async runtime.
     let loaded_image = get_loaded_image(&state)?;
-    let source_image = crate::mask_generation::build_converted_source_image(
-        &loaded_image.image,
-        loaded_image.is_raw,
-        &js_adjustments,
-    );
-
-    let normal_img =
+    let normal_img = tauri::async_runtime::spawn_blocking(move || {
+        let source_image = crate::mask_generation::build_converted_source_image(
+            &loaded_image.image,
+            loaded_image.is_raw,
+            &js_adjustments,
+        );
         crate::ai_processing::run_normal_model(source_image.as_ref(), normal_model.as_ref())
-            .map_err(|e| e.to_string())?;
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     crate::effect_maps::encode_source_space_map(&image::DynamicImage::ImageRgba8(normal_img))
 }

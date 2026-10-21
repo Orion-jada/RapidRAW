@@ -460,6 +460,8 @@
       },
       "recalculateDepth": "Diepte opnieuw berekenen",
       "recalculateDepthTooltip": "De dieptekaart opnieuw berekenen met het huidige AI-model",
+      "recalculateNormals": "Normalen opnieuw berekenen",
+      "recalculateNormalsTooltip": "De normaalkaart opnieuw berekenen met het huidige AI-model",
       "resetInpaintingTooltip": "Inpainting herstellen",
       "settings": {
         "aiModelDownloading": "AI-model downloaden: ",
@@ -1978,6 +1980,7 @@
         "lama": "Voor het krachtige en eenvoudige afbeeldingsinpainting-model dat inhoudsgebaseerde opvulling en objectverwijdering mogelijk maakt.",
         "lensfun": "Voor de onschatbare open-source bibliotheek en uitgebreide database voor automatische lenscorrectie.",
         "libgphoto2": "Voor de uitgebreide cameracommuicatiebibliotheek die het tethering- en afstandsbedieningssysteem van RapidRAW aandrijft.",
+        "moge": "Voor het monoculaire geometriemodel dat Herbelichten zijn oppervlaktenormalen geeft.",
         "negpy": "Voor de inspiratie achter de negatief-omzetlogica.",
         "nind": "Voor het leveren van AI-modellen die de AI-ruisonderdrukkingmogelijkheden in RapidRAW aandrijven.",
         "rawler": "Voor de uitstekende Rust-crate die de basis vormt voor RAW-bestandsverwerking in dit project.",

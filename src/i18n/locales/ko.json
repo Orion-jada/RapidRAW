@@ -464,6 +464,8 @@
       },
       "recalculateDepth": "심도 다시 계산",
       "recalculateDepthTooltip": "현재 AI 모델로 심도 맵을 다시 계산합니다",
+      "recalculateNormals": "노멀 다시 계산",
+      "recalculateNormalsTooltip": "현재 AI 모델로 노멀 맵을 다시 계산합니다",
       "resetInpaintingTooltip": "인페인팅 초기화",
       "settings": {
         "aiModelDownloading": "AI 모델 다운로드 중: ",
@@ -2003,6 +2005,7 @@
         "lama": "콘텐츠 인식 채우기와 객체 제거를 가능하게 하는 강력하고 간단한 이미지 인페인팅 모델을 제공해 주었습니다.",
         "lensfun": "자동 렌즈 보정을 위한 귀중한 오픈소스 라이브러리와 방대한 데이터베이스를 제공해 주었습니다.",
         "libgphoto2": "RapidRAW의 테더링 및 원격 촬영 시스템을 구동하는 포괄적인 카메라 통신 라이브러리를 제공해 주셔서.",
+        "moge": "리라이팅의 표면 노멀을 만드는 단안 지오메트리 모델을 제공해 주었습니다.",
         "negpy": "네거티브 변환 로직에 영감을 주었습니다.",
         "nind": "RapidRAW의 AI 노이즈 감소 기능을 구동하는 AI 모델을 제공해 주었습니다.",
         "rawler": "이 프로젝트의 RAW 파일 처리 기반이 되는 훌륭한 Rust 크레이트를 제공해 주었습니다.",

@@ -63,6 +63,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 
 ### Editing and Export
 
+- **Relight with MoGe-3:** Relight's surface normals come from MoGe-3 ViT-L instead of MoGe-2 ViT-S. Faces get noses, eye sockets and ears instead of smooth blobs, and folds in clothes and woven baskets catch the light, so lights look like they fall on real shapes. The model is downloaded the first time you use Relight (663 MB) and takes about 4 s per photo on the CPU, once per photo (MoGe-2 took about 1.3 s). Photos relit before keep their saved normal map; click **Recalculate normals** in Relight to redo it with MoGe-3.
 - **Rebuilt auto-enhance:** Auto-enhance now renders a small preview through the real editing pipeline and tunes exposure, contrast, highlights, shadows, whites and blacks, vibrance and white balance against what the photo actually looks like, in about 0.16 s. Night shots stay dark, and clarity, dehaze and vignette are left alone. Upstream's Subtle, Normal and Strong modes scale its corrections to half, full or one and a half strength. Also available in batch and from the command line (`--auto`).
 - **AI denoise for RAW files with RawNIND:** RAW files are denoised by RawNIND on the linear image before tone mapping, which keeps highlight detail (about 2 s for 24 MP). The AI slider is now a simple Strength control. Other files still use NIND.
 - **RawNIND Bayer denoise:** a second RawNIND option in the Denoise menu that cleans the camera's sensor data before it is turned into colour (demosaiced), as darktable does. It removes more colour noise in dark areas and takes about 0.5 s for 24 MP. It works with Bayer sensors (most cameras); for others, such as Fujifilm X-Trans, it uses regular RawNIND.
@@ -121,6 +122,7 @@ Each AI tool downloads its model the first time you use it, then keeps it. The m
 | Foreground mask    | BiRefNet                    | 507 MB       |
 | Sky mask           | SkyWater-Seg                | 50 MB        |
 | Depth, lens blur   | Depth Anything 3 Mono-Large | 670 MB       |
+| Relight            | MoGe-3 ViT-L                | 663 MB       |
 | RAW denoise        | RawNIND                     | 31 MB        |
 | RAW denoise, Bayer | RawNIND Bayer               | 31 MB        |
 | 2× upscale         | RealPLKSR                   | 32 MB        |
@@ -1135,6 +1137,7 @@ A huge thank you to the following projects and tools that were very important in
 - **[SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224):** For Google's Apache-2.0 multilingual image-text model that powers natural-language photo search.
 - **[BiRefNet](https://github.com/ZhengPeng7/BiRefNet):** For the high-accuracy segmentation model that powers the AI foreground detection capabilities.
 - **[Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3):** For ByteDance Seed's Apache-2.0 monocular depth estimation model that enables the AI depth masking capabilities.
+- **[MoGe](https://github.com/microsoft/MoGe):** For Microsoft's MIT-licensed monocular geometry model that gives Relight its surface normals.
 - **[nind-denoise](https://github.com/trougnouf/nind-denoise) / [RawNIND](https://github.com/trougnouf/rawnind_jddc):** For providing AI models that power the AI noise reduction capabilities in RapidRAW (RawNIND for RAW files, via [darktable-ai](https://github.com/darktable-org/darktable-ai)'s ONNX export).
 - **[2xPublic RealPLKSR](https://github.com/Phhofm/models):** For Philip Hofmann's Apache-2.0 super-resolution model that powers AI upscaling on export.
 - **[NegPy](https://github.com/marcinz606/NegPy):** For the inspiration behind the negative conversion logic, particularly the mathematical approach to film inversion using characteristic curves.

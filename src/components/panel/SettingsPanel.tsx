@@ -1975,6 +1975,17 @@ export default function SettingsPanel({
                       </li>
                       <li>
                         <a
+                          href="https://github.com/microsoft/MoGe"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-accent hover:underline"
+                        >
+                          MoGe
+                        </a>
+                        : {t('settings.thanks.list.moge')}
+                      </li>
+                      <li>
+                        <a
                           href="https://github.com/trougnouf/nind-denoise"
                           target="_blank"
                           rel="noopener noreferrer"

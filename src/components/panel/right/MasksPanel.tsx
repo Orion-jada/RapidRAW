@@ -52,7 +52,7 @@ import AdjustmentSection from '../../adjustments/AdjustmentSection';
 import ConnectedWaveform from '../editor/ConnectedWaveform';
 import Resizer from '../../ui/Resizer';
 import { DepthRangePicker } from '../../ui/DepthRangePicker';
-import RecalculateDepthButton from '../../ui/RecalculateDepthButton';
+import RecalculateMapButton from '../../ui/RecalculateMapButton';
 import AdjustmentSectionsSubMenu from './AdjustmentSectionsSubMenu';
 
 import {
@@ -2269,7 +2269,8 @@ function SettingsPanel({
               ))}
 
               {activeSubMask.type === Mask.AiDepth && (
-                <RecalculateDepthButton
+                <RecalculateMapButton
+                  map="depth"
                   isCalculating={Boolean(activeAiTasks?.[activeSubMask.id])}
                   onClick={() => handleGenerateAiDepthMask(activeSubMask.id, activeSubMask.parameters)}
                 />

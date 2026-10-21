@@ -487,6 +487,8 @@
       },
       "recalculateDepth": "Recalculer la profondeur",
       "recalculateDepthTooltip": "Recalculer la carte de profondeur avec le modèle d'IA actuel",
+      "recalculateNormals": "Recalculer les normales",
+      "recalculateNormalsTooltip": "Recalculer la carte des normales avec le modèle d'IA actuel",
       "resetInpaintingTooltip": "Réinitialiser l'Inpainting",
       "settings": {
         "aiModelDownloading": "Téléchargement du modèle IA : ",
@@ -2040,6 +2042,7 @@
         "lama": "Pour le modèle d'inpainting d'image puissant & simple, qui permet le remplissage génératif et la suppression d'objets.",
         "lensfun": "Pour son inestimable bibliothèque open-source et sa base de données complète pour la correction automatique de l'objectif.",
         "libgphoto2": "Pour la bibliothèque complète de communication avec les appareils photo qui alimente le tethering et la capture à distance de RapidRAW.",
+        "moge": "Pour le modèle de géométrie monoculaire qui fournit au Rééclairage les normales de surface.",
         "negpy": "Pour l'inspiration derrière la logique de conversion de négatif.",
         "nind": "Pour avoir fourni les modèles d'IA qui propulsent les capacités de réduction de bruit par IA dans RapidRAW.",
         "rawler": "Pour l'excellente crate Rust qui fournit la base du traitement des fichiers RAW dans ce projet.",

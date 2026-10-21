@@ -467,6 +467,8 @@
       },
       "recalculateDepth": "Přepočítat hloubku",
       "recalculateDepthTooltip": "Znovu vypočítat hloubkovou mapu aktuálním modelem AI",
+      "recalculateNormals": "Přepočítat normály",
+      "recalculateNormalsTooltip": "Znovu vypočítat mapu normál aktuálním modelem AI",
       "resetInpaintingTooltip": "Obnovit AI retuš",
       "settings": {
         "aiModelDownloading": "Stažení modelu AI: ",
@@ -2006,6 +2008,7 @@
         "lama": "Pro výkonný a jednoduchý model malování snímků, který umožňuje výplň a odstraňování objektů s ohledem na obsah.",
         "lensfun": "Pro svou neocenitelnou open-source knihovnu a komplexní databázi pro automatickou korekci objektivů.",
         "libgphoto2": "Pro komplexní knihovnu pro komunikaci s fotoaparátem, která pohání tethering a vzdálené snímání v RapidRAW.",
+        "moge": "Za model monokulární geometrie, který funkci Přesvětlení dodává normály povrchu.",
         "negpy": "Pro inspiraci negativní konverzní logiky.",
         "nind": "Za poskytování modelů AI, které pohánějí funkce redukce šumu AI v RapidRAW.",
         "rawler": "Za vynikající přepravku Rust, která poskytuje základ pro zpracování souborů RAW v tomto projektu.",

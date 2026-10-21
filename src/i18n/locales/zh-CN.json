@@ -464,6 +464,8 @@
       },
       "recalculateDepth": "重新计算深度",
       "recalculateDepthTooltip": "使用当前 AI 模型重新计算深度图",
+      "recalculateNormals": "重新计算法线",
+      "recalculateNormalsTooltip": "使用当前 AI 模型重新计算法线贴图",
       "resetInpaintingTooltip": "重置图像修复",
       "settings": {
         "aiModelDownloading": "AI 模型下载中：",
@@ -2003,6 +2005,7 @@
         "lama": "为强大且简单的图像修复模型提供支持，实现了内容感知填充和对象移除。",
         "lensfun": "为无价的开源库和全面的数据库提供支持，实现了自动镜头校正。",
         "libgphoto2": "感谢提供全面的相机通信库，为 RapidRAW 的联机拍摄与远程控制子系统提供支持。",
+        "moge": "提供单目几何估计模型，为重新打光生成表面法线。",
         "negpy": "为负片转换逻辑提供了灵感。",
         "nind": "为 AI 模型提供支持，驱动了 RapidRAW 中的 AI 降噪功能。",
         "rawler": "为优秀的 Rust 库提供支持，构成了本项目 RAW 文件处理的基础。",
