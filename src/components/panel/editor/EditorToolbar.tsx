@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef, useMemo } from 'react';
-import { Eye, EyeOff, ArrowLeft, Maximize, Loader2, Undo, Redo } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, Maximize, Loader2, Undo, Redo, Box } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -18,6 +18,7 @@ interface EditorToolbarProps {
   isLoading: boolean;
   onBackToLibrary(): void;
   onImageSelect?(path: string, event?: any): void;
+  onOpenGeometryViewer?(): void;
   onRedo(): void;
   onToggleFullScreen(): void;
   onToggleShowOriginal(): void;
@@ -39,6 +40,7 @@ const EditorToolbar = memo(
     isLoading,
     onBackToLibrary,
     onImageSelect,
+    onOpenGeometryViewer,
     onRedo,
     onToggleFullScreen,
     onToggleShowOriginal,
@@ -671,6 +673,16 @@ const EditorToolbar = memo(
             </AnimatePresence>
           </div>
 
+          {onOpenGeometryViewer && (
+            <button
+              className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors"
+              onClick={onOpenGeometryViewer}
+              onKeyDown={handleButtonKeyDown}
+              data-tooltip={t('editor.toolbar.tooltips.depthAndNormals')}
+            >
+              <Box size={20} />
+            </button>
+          )}
           <button
             className={clsx(
               'p-2 rounded-full transition-colors',

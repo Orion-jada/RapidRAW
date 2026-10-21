@@ -840,6 +840,7 @@
       "tooltips": {
         "aperture": "Aperture",
         "backToLibrary": "Back to Library",
+        "depthAndNormals": "Depth, Normals and 3D",
         "focalLength": "Focal Length",
         "fullscreen": "Toggle Fullscreen (F)",
         "iso": "ISO",
@@ -1456,6 +1457,26 @@
       "stacking": "Stacking Focus",
       "start": "Start",
       "title": "Focus Stacking"
+    },
+    "geometry": {
+      "calculating": "Calculating...",
+      "close": "Close",
+      "color": "Color",
+      "depthCaption": "Depth Anything 3, as used by depth masks, lens blur and fog. Brighter is closer.",
+      "downloading": "Downloading {{status}}...",
+      "failed": "Couldn't calculate this map.",
+      "gray": "Gray",
+      "normalsCaption": "MoGe-3, as used by Relight. Red faces right, green up and blue toward the camera.",
+      "resetView": "Reset View",
+      "retry": "Retry",
+      "surfaceClay": "Clay",
+      "surfaceNormals": "Normals",
+      "surfacePhoto": "Photo",
+      "tab3d": "3D",
+      "tabDepth": "Depth",
+      "tabNormals": "Normals",
+      "title": "Depth and Normals",
+      "view3dCaption": "MoGe-3's 3D shape of the photo. Drag to orbit, right-drag to pan and scroll to zoom."
     },
     "hdr": {
       "cancel": "Cancel",

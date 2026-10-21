@@ -841,6 +841,7 @@
       "tooltips": {
         "aperture": "Obertura",
         "backToLibrary": "Tornar a la Biblioteca",
+        "depthAndNormals": "Profunditat, normals i 3D",
         "focalLength": "Distància focal",
         "fullscreen": "Alternar pantalla completa (F)",
         "iso": "ISO",
@@ -1459,6 +1460,26 @@
       "stacking": "Apilant enfocament",
       "start": "Inicia",
       "title": "Apilament d'enfocament"
+    },
+    "geometry": {
+      "calculating": "S'està calculant...",
+      "close": "Tancar",
+      "color": "Color",
+      "depthCaption": "Depth Anything 3, el que fan servir les màscares de profunditat, el desenfocament de l'objectiu i la boira. Com més clar, més a prop.",
+      "downloading": "S'està baixant {{status}}...",
+      "failed": "No s'ha pogut calcular aquest mapa.",
+      "gray": "Gris",
+      "normalsCaption": "MoGe-3, el que fa servir Reil·luminar. El vermell mira a la dreta, el verd amunt i el blau cap a la càmera.",
+      "resetView": "Restablir la vista",
+      "retry": "Tornar-ho a intentar",
+      "surfaceClay": "Argila",
+      "surfaceNormals": "Normals",
+      "surfacePhoto": "Foto",
+      "tab3d": "3D",
+      "tabDepth": "Profunditat",
+      "tabNormals": "Normals",
+      "title": "Profunditat i normals",
+      "view3dCaption": "La forma 3D de la foto segons MoGe-3. Arrossega per girar, arrossega amb el botó dret per desplaçar i fes servir la roda per fer zoom."
     },
     "hdr": {
       "cancel": "Cancel·lar",

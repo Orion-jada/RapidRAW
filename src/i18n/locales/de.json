@@ -840,6 +840,7 @@
       "tooltips": {
         "aperture": "Blende",
         "backToLibrary": "Zurück zur Bibliothek",
+        "depthAndNormals": "Tiefe, Normalen und 3D",
         "focalLength": "Brennweite",
         "fullscreen": "Vollbild umschalten (F)",
         "iso": "ISO",
@@ -1456,6 +1457,26 @@
       "stacking": "Fokus wird gestapelt",
       "start": "Start",
       "title": "Fokus-Stacking"
+    },
+    "geometry": {
+      "calculating": "Wird berechnet...",
+      "close": "Schließen",
+      "color": "Farbe",
+      "depthCaption": "Depth Anything 3, wie es Tiefenmasken, Objektivunschärfe und Nebel verwenden. Heller ist näher.",
+      "downloading": "Wird heruntergeladen {{status}}...",
+      "failed": "Diese Karte konnte nicht berechnet werden.",
+      "gray": "Grau",
+      "normalsCaption": "MoGe-3, wie es Neu beleuchten verwendet. Rot zeigt nach rechts, Grün nach oben und Blau zur Kamera.",
+      "resetView": "Ansicht zurücksetzen",
+      "retry": "Wiederholen",
+      "surfaceClay": "Ton",
+      "surfaceNormals": "Normalen",
+      "surfacePhoto": "Foto",
+      "tab3d": "3D",
+      "tabDepth": "Tiefe",
+      "tabNormals": "Normalen",
+      "title": "Tiefe und Normalen",
+      "view3dCaption": "Die 3D-Form des Fotos laut MoGe-3. Ziehen zum Drehen, mit der rechten Maustaste ziehen zum Verschieben, scrollen zum Zoomen."
     },
     "hdr": {
       "cancel": "Abbrechen",

@@ -320,6 +320,57 @@ pub async fn generate_relight_normal_map(
     crate::effect_maps::encode_source_space_map(&image::DynamicImage::ImageRgba8(normal_img))
 }
 
+/// Longest side of the photo texture sent with the 3D view's geometry.
+const GEOMETRY_TEXTURE_MAX_SIZE: u32 = 2048;
+
+/// MoGe-3's points, normals and mask for the editor's depth, normals and 3D view, with the photo
+/// to texture them, as one binary buffer (`NormalGeometry::to_view_bytes`). Like the other maps,
+/// it's of the whole photo, before crop and geometry corrections.
+#[tauri::command]
+pub async fn generate_photo_geometry(
+    js_adjustments: serde_json::Value,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<tauri::ipc::Response, String> {
+    let normal_model = crate::ai_processing::get_or_init_normal_model(
+        &app_handle,
+        &state.ai_state,
+        &state.ai_init_lock,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let loaded_image = get_loaded_image(&state)?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let source_image = crate::mask_generation::build_converted_source_image(
+            &loaded_image.image,
+            loaded_image.is_raw,
+            &js_adjustments,
+        );
+        let geometry = crate::ai_processing::run_normal_geometry(
+            source_image.as_ref(),
+            normal_model.as_ref(),
+        )?;
+        let texture =
+            if source_image.width().max(source_image.height()) > GEOMETRY_TEXTURE_MAX_SIZE {
+                source_image.resize(
+                    GEOMETRY_TEXTURE_MAX_SIZE,
+                    GEOMETRY_TEXTURE_MAX_SIZE,
+                    image::imageops::FilterType::Triangle,
+                )
+            } else {
+                source_image.into_owned()
+            }
+            .into_rgba8();
+        anyhow::Ok(geometry.to_view_bytes(&texture))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 fn get_loaded_image(state: &tauri::State<'_, AppState>) -> Result<crate::LoadedImage, String> {
     state
         .original_image

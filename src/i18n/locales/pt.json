@@ -862,6 +862,7 @@
       "tooltips": {
         "aperture": "Abertura",
         "backToLibrary": "Voltar para a Biblioteca",
+        "depthAndNormals": "Profundidade, Normais e 3D",
         "focalLength": "Distância Focal",
         "fullscreen": "Alternar Tela Cheia (F)",
         "iso": "ISO",
@@ -1486,6 +1487,26 @@
       "stacking": "Empilhando Foco",
       "start": "Iniciar",
       "title": "Empilhamento de Foco"
+    },
+    "geometry": {
+      "calculating": "Calculando...",
+      "close": "Fechar",
+      "color": "Cor",
+      "depthCaption": "Depth Anything 3, usado pelas máscaras de profundidade, desfocagem de lente e névoa. Mais claro é mais perto.",
+      "downloading": "Baixando {{status}}...",
+      "failed": "Não foi possível calcular este mapa.",
+      "gray": "Cinza",
+      "normalsCaption": "MoGe-3, usado por Reiluminar. Vermelho aponta para a direita, verde para cima e azul para a câmera.",
+      "resetView": "Redefinir Visualização",
+      "retry": "Tentar Novamente",
+      "surfaceClay": "Argila",
+      "surfaceNormals": "Normais",
+      "surfacePhoto": "Foto",
+      "tab3d": "3D",
+      "tabDepth": "Profundidade",
+      "tabNormals": "Normais",
+      "title": "Profundidade e Normais",
+      "view3dCaption": "A forma 3D da foto segundo o MoGe-3. Arraste para girar, arraste com o botão direito para mover e role para dar zoom."
     },
     "hdr": {
       "cancel": "Cancelar",

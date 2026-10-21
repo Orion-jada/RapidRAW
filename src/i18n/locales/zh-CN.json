@@ -838,6 +838,7 @@
       "tooltips": {
         "aperture": "光圈",
         "backToLibrary": "返回图库",
+        "depthAndNormals": "深度、法线与 3D",
         "focalLength": "焦距",
         "fullscreen": "切换全屏（F）",
         "iso": "ISO",
@@ -1454,6 +1455,26 @@
       "stacking": "正在合成焦距",
       "start": "开始",
       "title": "焦距合成"
+    },
+    "geometry": {
+      "calculating": "计算中...",
+      "close": "关闭",
+      "color": "彩色",
+      "depthCaption": "深度蒙版、镜头模糊和雾使用的 Depth Anything 3。越亮越近。",
+      "downloading": "下载中 {{status}}...",
+      "failed": "无法计算此图。",
+      "gray": "灰度",
+      "normalsCaption": "重新打光使用的 MoGe-3。红色朝右，绿色朝上，蓝色朝向相机。",
+      "resetView": "重置视图",
+      "retry": "重试",
+      "surfaceClay": "白模",
+      "surfaceNormals": "法线",
+      "surfacePhoto": "照片",
+      "tab3d": "3D",
+      "tabDepth": "深度",
+      "tabNormals": "法线",
+      "title": "深度与法线",
+      "view3dCaption": "MoGe-3 得出的照片 3D 形状。拖动旋转，右键拖动平移，滚动缩放。"
     },
     "hdr": {
       "cancel": "取消",

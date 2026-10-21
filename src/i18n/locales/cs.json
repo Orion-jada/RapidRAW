@@ -841,6 +841,7 @@
       "tooltips": {
         "aperture": "Clona",
         "backToLibrary": "Zpět do Knihovny",
+        "depthAndNormals": "Hloubka, normály a 3D",
         "focalLength": "Ohnisková vzdálenost",
         "fullscreen": "Přepnout na celou obrazovku (F)",
         "iso": "ISO",
@@ -1457,6 +1458,26 @@
       "stacking": "Skládání zaostření",
       "start": "Start",
       "title": "Skládání zaostření"
+    },
+    "geometry": {
+      "calculating": "Výpočet...",
+      "close": "Zavřít",
+      "color": "Barva",
+      "depthCaption": "Depth Anything 3, který používají masky hloubky, rozostření objektivu a mlha. Světlejší je blíž.",
+      "downloading": "Stahování {{status}}...",
+      "failed": "Tuto mapu se nepodařilo vypočítat.",
+      "gray": "Šedá",
+      "normalsCaption": "MoGe-3, který používá Přesvětlení. Červená míří doprava, zelená nahoru a modrá k fotoaparátu.",
+      "resetView": "Obnovit pohled",
+      "retry": "Zkuste to znovu",
+      "surfaceClay": "Hlína",
+      "surfaceNormals": "Normály",
+      "surfacePhoto": "Fotka",
+      "tab3d": "3D",
+      "tabDepth": "Hloubka",
+      "tabNormals": "Normály",
+      "title": "Hloubka a normály",
+      "view3dCaption": "3D tvar fotky podle MoGe-3. Tažením otáčíte, tažením pravým tlačítkem posouváte a kolečkem přibližujete."
     },
     "hdr": {
       "cancel": "Zrušit",

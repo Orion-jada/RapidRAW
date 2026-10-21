@@ -26,6 +26,7 @@ import {
   normalizeCropChange,
 } from '../../utils/cropUtils';
 import EditorToolbar from './editor/EditorToolbar';
+import GeometryViewer from '../modals/GeometryViewer';
 import ImageCanvas from './editor/ImageCanvas';
 import { Mask, SubMask } from './right/Masks';
 import { Panel, TransformState, Invokes } from '../ui/AppProperties';
@@ -100,6 +101,7 @@ export default function Editor({ onBackToLibrary, onContextMenu, onImageSelect, 
   const activePanel = useUIStore((s) => s.activePanel);
   const isInstantTransition = useUIStore((s) => s.isInstantTransition);
   const setUI = useUIStore((s) => s.setUI);
+  const isGeometryViewerOpen = useUIStore((s) => s.isGeometryViewerOpen);
   const isLoading = useLibraryStore((s) => s.isViewLoading);
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const adjustments = useEditorStore(useShallow((s) => omitTonalAdjustments(s.adjustments)));
@@ -135,6 +137,9 @@ export default function Editor({ onBackToLibrary, onContextMenu, onImageSelect, 
   const canRedo = adjustmentsHistoryIndex < adjustmentsHistory.length - 1;
 
   const isAndroid = osPlatform === 'android';
+  const isAiFree = appSettings?.aiProvider === 'ai-free';
+  const openGeometryViewer = useCallback(() => setUI({ isGeometryViewerOpen: true }), [setUI]);
+  const closeGeometryViewer = useCallback(() => setUI({ isGeometryViewerOpen: false }), [setUI]);
 
   const { handleGenerateAiMask, handleQuickErase, handleDirectPatch } = useAiMasking();
   const { setAdjustments, toggleShowOriginal } = useEditorActions();
@@ -2289,6 +2294,7 @@ export default function Editor({ onBackToLibrary, onContextMenu, onImageSelect, 
           isLoading={isLoading}
           onBackToLibrary={onBackToLibrary}
           onImageSelect={onImageSelect}
+          onOpenGeometryViewer={isAiFree ? undefined : openGeometryViewer}
           onRedo={redo}
           onToggleFullScreen={toggleFullScreen}
           onToggleShowOriginal={toggleShowOriginal}
@@ -2302,6 +2308,7 @@ export default function Editor({ onBackToLibrary, onContextMenu, onImageSelect, 
           goToAdjustmentsHistoryIndex={goToHistoryIndex}
         />
       </div>
+      <GeometryViewer isOpen={isGeometryViewerOpen} onClose={closeGeometryViewer} />
 
       <div
         className={clsx(

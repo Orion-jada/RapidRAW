@@ -884,6 +884,7 @@
       "tooltips": {
         "aperture": "Przysłona",
         "backToLibrary": "Wróć do biblioteki",
+        "depthAndNormals": "Głębia, normalne i 3D",
         "focalLength": "Ogniskowa",
         "fullscreen": "Przełącz pełny ekran (F)",
         "iso": "ISO",
@@ -1516,6 +1517,26 @@
       "stacking": "Składanie ostrości",
       "start": "Rozpocznij",
       "title": "Stosowanie ostrości"
+    },
+    "geometry": {
+      "calculating": "Obliczanie...",
+      "close": "Zamknij",
+      "color": "Kolor",
+      "depthCaption": "Depth Anything 3, używany przez maski głębi, rozmycie obiektywu i mgłę. Jaśniejsze jest bliżej.",
+      "downloading": "Pobieranie {{status}}...",
+      "failed": "Nie udało się obliczyć tej mapy.",
+      "gray": "Szary",
+      "normalsCaption": "MoGe-3, używany przez Ponowne oświetlenie. Czerwony wskazuje w prawo, zielony w górę, a niebieski w stronę aparatu.",
+      "resetView": "Resetuj widok",
+      "retry": "Spróbuj ponownie",
+      "surfaceClay": "Glina",
+      "surfaceNormals": "Normalne",
+      "surfacePhoto": "Zdjęcie",
+      "tab3d": "3D",
+      "tabDepth": "Głębia",
+      "tabNormals": "Normalne",
+      "title": "Głębia i normalne",
+      "view3dCaption": "Kształt 3D zdjęcia według MoGe-3. Przeciągnij, aby obrócić, przeciągnij prawym przyciskiem, aby przesunąć, i przewiń, aby powiększyć."
     },
     "hdr": {
       "cancel": "Anuluj",

@@ -834,6 +834,7 @@
       "tooltips": {
         "aperture": "Diafragma",
         "backToLibrary": "Terug naar bibliotheek",
+        "depthAndNormals": "Diepte, normalen en 3D",
         "focalLength": "Brandpuntsafstand",
         "fullscreen": "Volledig scherm aan/uit (F)",
         "iso": "ISO",
@@ -1433,6 +1434,26 @@
       "stacking": "Focus stapelen",
       "start": "Starten",
       "title": "Focusstapeling"
+    },
+    "geometry": {
+      "calculating": "Berekenen...",
+      "close": "Sluiten",
+      "color": "Kleur",
+      "depthCaption": "Depth Anything 3, zoals gebruikt door dieptemaskers, lensonscherpte en mist. Lichter is dichterbij.",
+      "downloading": "Downloaden {{status}}...",
+      "failed": "Deze kaart kon niet worden berekend.",
+      "gray": "Grijs",
+      "normalsCaption": "MoGe-3, zoals gebruikt door Herbelichten. Rood wijst naar rechts, groen omhoog en blauw naar de camera.",
+      "resetView": "Weergave herstellen",
+      "retry": "Opnieuw",
+      "surfaceClay": "Klei",
+      "surfaceNormals": "Normalen",
+      "surfacePhoto": "Foto",
+      "tab3d": "3D",
+      "tabDepth": "Diepte",
+      "tabNormals": "Normalen",
+      "title": "Diepte en normalen",
+      "view3dCaption": "De 3D-vorm van de foto volgens MoGe-3. Sleep om te draaien, sleep met rechts om te verschuiven en scroll om te zoomen."
     },
     "hdr": {
       "cancel": "Annuleren",

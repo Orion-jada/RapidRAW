@@ -862,6 +862,7 @@
       "tooltips": {
         "aperture": "Ouverture",
         "backToLibrary": "Retour à la bibliothèque",
+        "depthAndNormals": "Profondeur, normales et 3D",
         "focalLength": "Longueur focale",
         "fullscreen": "Basculer en plein écran (F)",
         "iso": "ISO",
@@ -1485,6 +1486,26 @@
       "stacking": "Empilement de la mise au point",
       "start": "Démarrer",
       "title": "Empilement de mise au point"
+    },
+    "geometry": {
+      "calculating": "Calcul en cours...",
+      "close": "Fermer",
+      "color": "Couleur",
+      "depthCaption": "Depth Anything 3, utilisé par les masques de profondeur, le flou d'objectif et le brouillard. Plus c'est clair, plus c'est proche.",
+      "downloading": "Téléchargement {{status}}...",
+      "failed": "Impossible de calculer cette carte.",
+      "gray": "Gris",
+      "normalsCaption": "MoGe-3, utilisé par le Rééclairage. Le rouge pointe vers la droite, le vert vers le haut et le bleu vers l'appareil.",
+      "resetView": "Réinitialiser la vue",
+      "retry": "Réessayer",
+      "surfaceClay": "Argile",
+      "surfaceNormals": "Normales",
+      "surfacePhoto": "Photo",
+      "tab3d": "3D",
+      "tabDepth": "Profondeur",
+      "tabNormals": "Normales",
+      "title": "Profondeur et normales",
+      "view3dCaption": "La forme 3D de la photo selon MoGe-3. Faites glisser pour tourner, glissez avec le bouton droit pour déplacer et utilisez la molette pour zoomer."
     },
     "hdr": {
       "cancel": "Annuler",

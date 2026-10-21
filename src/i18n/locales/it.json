@@ -864,6 +864,7 @@
       "tooltips": {
         "aperture": "Apertura",
         "backToLibrary": "Torna alla Libreria",
+        "depthAndNormals": "Profondità, normali e 3D",
         "focalLength": "Lunghezza Focale",
         "fullscreen": "Attiva/Disattiva Schermo Intero (F)",
         "iso": "ISO",
@@ -1488,6 +1489,26 @@
       "stacking": "Unione messa a fuoco in corso",
       "start": "Avvia",
       "title": "Focus Stacking"
+    },
+    "geometry": {
+      "calculating": "Calcolo in corso...",
+      "close": "Chiudi",
+      "color": "Colore",
+      "depthCaption": "Depth Anything 3, usato da maschere di profondità, sfocatura obiettivo e nebbia. Più chiaro è più vicino.",
+      "downloading": "Download in corso {{status}}...",
+      "failed": "Impossibile calcolare questa mappa.",
+      "gray": "Grigio",
+      "normalsCaption": "MoGe-3, usato da Riilluminazione. Il rosso punta a destra, il verde in alto e il blu verso la fotocamera.",
+      "resetView": "Ripristina vista",
+      "retry": "Riprova",
+      "surfaceClay": "Argilla",
+      "surfaceNormals": "Normali",
+      "surfacePhoto": "Foto",
+      "tab3d": "3D",
+      "tabDepth": "Profondità",
+      "tabNormals": "Normali",
+      "title": "Profondità e normali",
+      "view3dCaption": "La forma 3D della foto secondo MoGe-3. Trascina per ruotare, trascina con il tasto destro per spostare e scorri per lo zoom."
     },
     "hdr": {
       "cancel": "Annulla",

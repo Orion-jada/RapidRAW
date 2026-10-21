@@ -2443,6 +2443,7 @@ pub fn run() {
             ai_commands::test_ai_connector_connection,
             ai_commands::generate_full_image_depth_map,
             ai_commands::generate_relight_normal_map,
+            ai_commands::generate_photo_geometry,
             ai_denoise::get_ai_denoise_cache_size,
             ai_denoise::clear_ai_denoise_cache,
             ai_commands::cancel_ai_task,

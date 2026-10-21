@@ -838,6 +838,7 @@
       "tooltips": {
         "aperture": "絞り値",
         "backToLibrary": "ライブラリに戻る",
+        "depthAndNormals": "奥行き、法線、3D",
         "focalLength": "焦点距離",
         "fullscreen": "全画面表示切り替え (F)",
         "iso": "ISO感度",
@@ -1454,6 +1455,26 @@
       "stacking": "フォーカスをスタック中",
       "start": "開始",
       "title": "フォーカススタッキング"
+    },
+    "geometry": {
+      "calculating": "計算中...",
+      "close": "閉じる",
+      "color": "カラー",
+      "depthCaption": "奥行きマスク、レンズぼかし、霧で使われる Depth Anything 3 です。明るいほど手前です。",
+      "downloading": "ダウンロード中 {{status}}...",
+      "failed": "このマップを計算できませんでした。",
+      "gray": "グレー",
+      "normalsCaption": "リライトで使われる MoGe-3 です。赤は右、緑は上、青はカメラの方向を向いています。",
+      "resetView": "表示をリセット",
+      "retry": "再試行",
+      "surfaceClay": "クレイ",
+      "surfaceNormals": "法線",
+      "surfacePhoto": "写真",
+      "tab3d": "3D",
+      "tabDepth": "奥行き",
+      "tabNormals": "法線",
+      "title": "奥行きと法線",
+      "view3dCaption": "MoGe-3 による写真の 3D 形状です。ドラッグで回転、右ドラッグで移動、スクロールでズームします。"
     },
     "hdr": {
       "cancel": "キャンセル",

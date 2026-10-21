@@ -838,6 +838,7 @@
       "tooltips": {
         "aperture": "조리개",
         "backToLibrary": "라이브러리로 돌아가기",
+        "depthAndNormals": "심도, 노멀, 3D",
         "focalLength": "초점 거리",
         "fullscreen": "전체 화면 전환 (F)",
         "iso": "ISO",
@@ -1454,6 +1455,26 @@
       "stacking": "포커스 스태킹 중",
       "start": "시작",
       "title": "포커스 스태킹"
+    },
+    "geometry": {
+      "calculating": "계산 중...",
+      "close": "닫기",
+      "color": "컬러",
+      "depthCaption": "심도 마스크, 렌즈 블러, 안개에 쓰이는 Depth Anything 3입니다. 밝을수록 가깝습니다.",
+      "downloading": "{{status}} 다운로드 중...",
+      "failed": "이 맵을 계산하지 못했습니다.",
+      "gray": "회색",
+      "normalsCaption": "리라이팅에 쓰이는 MoGe-3입니다. 빨간색은 오른쪽, 초록색은 위쪽, 파란색은 카메라 쪽을 향합니다.",
+      "resetView": "보기 초기화",
+      "retry": "다시 시도",
+      "surfaceClay": "클레이",
+      "surfaceNormals": "노멀",
+      "surfacePhoto": "사진",
+      "tab3d": "3D",
+      "tabDepth": "심도",
+      "tabNormals": "노멀",
+      "title": "심도와 노멀",
+      "view3dCaption": "MoGe-3가 본 사진의 3D 형태입니다. 드래그하면 회전, 오른쪽 드래그하면 이동, 스크롤하면 확대/축소됩니다."
     },
     "hdr": {
       "cancel": "취소",

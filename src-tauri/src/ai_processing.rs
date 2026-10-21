@@ -3420,7 +3420,71 @@ fn build_normal_depth(points: &[f32], mask: &[f32]) -> Vec<u8> {
         .collect()
 }
 
+/// MoGe-3's geometry for a photo, on a grid with the photo's aspect ratio and its long side at
+/// most NORMAL_MAX_SIZE. Points and normals are in camera space: x right, y down, z forward.
+pub struct NormalGeometry {
+    pub width: u32,
+    pub height: u32,
+    /// Three values per pixel. Only meaningful where `mask` is at least 0.5.
+    pub points: Vec<f32>,
+    /// Three values per pixel, not quite unit length after resampling.
+    pub normals: Vec<f32>,
+    /// One value per pixel, 0 to 1: below 0.5 there's no surface, as in the sky.
+    pub mask: Vec<f32>,
+}
+
+impl NormalGeometry {
+    /// Packs the geometry and a texture for the 3D view: width, height, texture width and
+    /// texture height as little-endian u32s, then the points and normals as f32s, the mask as
+    /// one byte per pixel and the texture as RGBA. The f32s start on 4-byte boundaries.
+    pub fn to_view_bytes(&self, texture: &RgbaImage) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(
+            16 + (self.points.len() + self.normals.len()) * 4
+                + self.mask.len()
+                + texture.as_raw().len(),
+        );
+        for value in [self.width, self.height, texture.width(), texture.height()] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in self.points.iter().chain(&self.normals) {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend(
+            self.mask
+                .iter()
+                .map(|&m| (m.clamp(0.0, 1.0) * 255.0).round() as u8),
+        );
+        bytes.extend_from_slice(texture.as_raw());
+        bytes
+    }
+}
+
 pub fn run_normal_model(image: &DynamicImage, normal_model: &NormalModel) -> Result<RgbaImage> {
+    let geometry = run_normal_geometry(image, normal_model)?;
+    let depth = build_normal_depth(&geometry.points, &geometry.mask);
+
+    let pack = |v: f32| ((v * 0.5 + 0.5).clamp(0.0, 1.0) * 255.0).round() as u8;
+
+    let mut normal_data = Vec::with_capacity(geometry.mask.len() * 4);
+    for (n, d) in geometry.normals.as_chunks::<3>().0.iter().zip(depth) {
+        let (nx, ny, nz) = (n[0], -n[1], -n[2]);
+        let len = (nx * nx + ny * ny + nz * nz).sqrt();
+        if len.is_finite() && len > 1e-6 {
+            normal_data.extend_from_slice(&[pack(nx / len), pack(ny / len), pack(nz / len)]);
+        } else {
+            normal_data.extend_from_slice(&[128, 128, 255]);
+        }
+        normal_data.push(d);
+    }
+
+    RgbaImage::from_raw(geometry.width, geometry.height, normal_data)
+        .ok_or_else(|| anyhow::anyhow!("Failed to create normal map from model output"))
+}
+
+pub fn run_normal_geometry(
+    image: &DynamicImage,
+    normal_model: &NormalModel,
+) -> Result<NormalGeometry> {
     let resized_image = if image.width().max(image.height()) > NORMAL_MAX_SIZE {
         image.resize(NORMAL_MAX_SIZE, NORMAL_MAX_SIZE, FilterType::Triangle)
     } else {
@@ -3491,24 +3555,14 @@ pub fn run_normal_model(image: &DynamicImage, normal_model: &NormalModel) -> Res
             to_photo(points_tensor.iter().copied().collect(), 3),
         ))
     })?;
-    let depth = build_normal_depth(&points, &mask);
 
-    let pack = |v: f32| ((v * 0.5 + 0.5).clamp(0.0, 1.0) * 255.0).round() as u8;
-
-    let mut normal_data = Vec::with_capacity(rw * rh * 4);
-    for (n, d) in normals.as_chunks::<3>().0.iter().zip(depth) {
-        let (nx, ny, nz) = (n[0], -n[1], -n[2]);
-        let len = (nx * nx + ny * ny + nz * nz).sqrt();
-        if len.is_finite() && len > 1e-6 {
-            normal_data.extend_from_slice(&[pack(nx / len), pack(ny / len), pack(nz / len)]);
-        } else {
-            normal_data.extend_from_slice(&[128, 128, 255]);
-        }
-        normal_data.push(d);
-    }
-
-    RgbaImage::from_raw(resized_w, resized_h, normal_data)
-        .ok_or_else(|| anyhow::anyhow!("Failed to create normal map from model output"))
+    Ok(NormalGeometry {
+        width: resized_w,
+        height: resized_h,
+        points,
+        normals,
+        mask,
+    })
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -3676,6 +3730,28 @@ mod model_cache_tests {
 #[cfg(test)]
 mod normal_model_tests {
     use super::*;
+
+    #[test]
+    fn view_bytes_hold_sizes_then_points_normals_mask_and_texture() {
+        let geometry = NormalGeometry {
+            width: 2,
+            height: 1,
+            points: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            normals: vec![0.0, 0.0, -1.0, 0.0, 1.0, 0.0],
+            mask: vec![1.0, 0.0],
+        };
+        let texture = RgbaImage::from_raw(1, 1, vec![10, 20, 30, 255]).unwrap();
+        let bytes = geometry.to_view_bytes(&texture);
+
+        let u32_at = |i: usize| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
+        let f32_at = |i: usize| f32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
+        assert_eq!([u32_at(0), u32_at(4), u32_at(8), u32_at(12)], [2, 1, 1, 1]);
+        assert_eq!(f32_at(16), 1.0);
+        assert_eq!(f32_at(16 + 5 * 4), 6.0);
+        assert_eq!(f32_at(16 + 8 * 4), -1.0);
+        assert_eq!(&bytes[64..66], &[255, 0]);
+        assert_eq!(&bytes[66..], &[10, 20, 30, 255]);
+    }
 
     #[test]
     fn photos_use_the_fixed_graph_of_their_orientation_within_the_stretch_limit() {
