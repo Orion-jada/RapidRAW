@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -137,14 +138,49 @@ const DEPTH_INPUT_HEIGHT: u32 = 504;
 const DEPTH_SKY_THRESHOLD: f32 = 0.3;
 
 // MoGe-3 ViT-L (MIT): normals and points for Relight, without MoGe-3's CUDA-only sparse
-// refiner, which only refines depth. Takes any photo shape, so it runs on the CPU (~4s);
-// CoreML only compiles fixed shapes. Weights are stored as float16 and cast back at load.
+// refiner, which only refines depth. Takes any photo shape and runs on the CPU (~4s). Weights
+// are stored as float16 and cast back at load. The normal map has the photo's aspect ratio with
+// its long side at most NORMAL_MAX_SIZE.
 const NORMAL_URL: &str =
     "https://github.com/Orion-jada/RapidRAW/releases/download/moge3-v1/moge3_vitl_normal.onnx";
 const NORMAL_FILENAME: &str = "moge3_vitl_normal.onnx";
 const NORMAL_MAX_SIZE: u32 = 768;
 const NORMAL_NUM_TOKENS: i64 = 2500;
 const NORMAL_SHA256: &str = "651ee8b995f32ef12041f91b47fe080f97aaf402c1e49355d9c18439fdfed08e";
+
+// The same model fixed to a landscape and a portrait size, so CoreML runs all of it (~0.4s on an
+// M3 Max GPU), with `metric_scale` left out. These files hold only the graph: its weights are
+// ONNX external data pointing into NORMAL_FILENAME, which must sit next to them, so they're
+// rebuilt whenever NORMAL_FILENAME changes. A photo is stretched to the closer one. Up to
+// NORMAL_MAX_STRETCH, that moves its normals ~4° on average from the CPU model's, as much as a
+// different token count does; squarer or wider photos use the CPU model.
+const NORMAL_FIXED: [FixedNormalGraph; 2] = [
+    FixedNormalGraph {
+        width: 768,
+        height: 512,
+        filename: "moge3_vitl_normal_768x512.onnx",
+        url: "https://github.com/Orion-jada/RapidRAW/releases/download/moge3-v1/moge3_vitl_normal_768x512.onnx",
+        sha256: "866af69673867047764a88d1a350aa59dc23e7378e7bb16aa3c186c0f4717f4d",
+    },
+    FixedNormalGraph {
+        width: 512,
+        height: 768,
+        filename: "moge3_vitl_normal_512x768.onnx",
+        url: "https://github.com/Orion-jada/RapidRAW/releases/download/moge3-v1/moge3_vitl_normal_512x768.onnx",
+        sha256: "c4c62adae689a8cda0169009858ec574612a3e510e225ad95ada61ae7b0a9776",
+    },
+];
+/// How far a photo's aspect ratio may be stretched to fit a fixed graph: 4:3, 16:9 and 5:4 fit
+/// one, 1:1 and 2:1 don't.
+const NORMAL_MAX_STRETCH: f32 = 1.2;
+
+struct FixedNormalGraph {
+    width: u32,
+    height: u32,
+    filename: &'static str,
+    url: &'static str,
+    sha256: &'static str,
+}
 
 type SharedSession = Arc<Mutex<Session>>;
 
@@ -241,7 +277,7 @@ pub struct AiState {
     pub clip_models: Option<Arc<ClipModels>>,
     pub search_models: Option<Arc<SearchModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
-    pub normal_model: Option<Arc<Mutex<Session>>>,
+    pub normal_model: Option<Arc<NormalModel>>,
     pub depth_model: Option<Arc<Mutex<Session>>>,
     pub embeddings: Option<ImageEmbeddings>,
     pub depth_map: Option<CachedDepthMap>,
@@ -1618,11 +1654,95 @@ pub async fn get_or_init_lama_model(
     Ok(lama_model)
 }
 
+/// MoGe-3 for Relight. Sessions load when a photo needs them, and only one is kept, as each holds
+/// about 2 GB: switching between landscape and portrait photos reloads the compiled CoreML model,
+/// which takes under a second.
+pub struct NormalModel {
+    models_dir: PathBuf,
+    /// The session, and the index in NORMAL_FIXED of the graph it runs (`None`: any-size model).
+    loaded: Mutex<Option<(Option<usize>, Session)>>,
+    /// Fixed graphs that couldn't be downloaded or compiled; their photos use the CPU model.
+    unavailable: [AtomicBool; NORMAL_FIXED.len()],
+}
+
+impl NormalModel {
+    /// The fixed graph to run a `width` x `height` photo through, if CoreML can.
+    fn fixed_graph_for(&self, width: u32, height: u32) -> Option<usize> {
+        if !cfg!(target_os = "macos") || std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_some() {
+            return None;
+        }
+        fixed_normal_graph(width, height).filter(|&i| !self.unavailable[i].load(Ordering::Relaxed))
+    }
+
+    /// Runs `f` with the session for `graph`, loading it in place of the last one if needed. If
+    /// CoreML can't compile a fixed graph, the any-size model runs instead, then and from then on.
+    fn run<R>(
+        &self,
+        graph: Option<usize>,
+        f: impl FnOnce(Option<&FixedNormalGraph>, &mut Session) -> Result<R>,
+    ) -> Result<R> {
+        let mut loaded = self.loaded.lock().unwrap();
+        if loaded.as_ref().map(|(g, _)| *g) != Some(graph) {
+            // Free the old session before the new one loads.
+            *loaded = None;
+            *loaded = Some(self.load(graph)?);
+        }
+        let (graph, session) = loaded.as_mut().unwrap();
+        f(graph.map(|i| &NORMAL_FIXED[i]), session)
+    }
+
+    fn load(&self, graph: Option<usize>) -> Result<(Option<usize>, Session)> {
+        #[cfg(target_os = "macos")]
+        if let Some(index) = graph {
+            let path = self.models_dir.join(NORMAL_FIXED[index].filename);
+            match build_coreml_session(
+                &path,
+                NORMAL_FIXED[index].sha256,
+                CoreMLComputeUnits::CPUAndGPU,
+            ) {
+                Ok(session) => {
+                    log::info!("Loaded {} with CoreML", path.display());
+                    return Ok((graph, session));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "CoreML failed for {}, using the CPU model: {}",
+                        path.display(),
+                        e
+                    );
+                    self.unavailable[index].store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = graph;
+
+        let session = one_shot_session(&self.models_dir.join(NORMAL_FILENAME))?;
+        Ok((None, session))
+    }
+}
+
+/// Index of the fixed graph closest to a `width` x `height` photo's aspect ratio, if it's within
+/// NORMAL_MAX_STRETCH of it.
+fn fixed_normal_graph(width: u32, height: u32) -> Option<usize> {
+    let aspect = width as f32 / height.max(1) as f32;
+    NORMAL_FIXED
+        .iter()
+        .map(|g| {
+            let graph_aspect = g.width as f32 / g.height as f32;
+            (aspect / graph_aspect).max(graph_aspect / aspect)
+        })
+        .enumerate()
+        .filter(|&(_, stretch)| stretch <= NORMAL_MAX_STRETCH)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(index, _)| index)
+}
+
 pub async fn get_or_init_normal_model(
     app_handle: &tauri::AppHandle,
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
-) -> Result<Arc<Mutex<Session>>> {
+) -> Result<Arc<NormalModel>> {
     if let Some(normal_model) = ai_state_mutex
         .lock()
         .unwrap()
@@ -1654,10 +1774,36 @@ pub async fn get_or_init_normal_model(
     )
     .await?;
 
+    // The fixed graphs are only for CoreML. Without them, photos use the CPU model.
+    let unavailable = std::array::from_fn(|_| AtomicBool::new(!cfg!(target_os = "macos")));
+    if cfg!(target_os = "macos") {
+        for (fixed, unavailable) in NORMAL_FIXED.iter().zip(&unavailable) {
+            if let Err(e) = download_and_verify_model(
+                app_handle,
+                &models_dir,
+                fixed.filename,
+                fixed.url,
+                fixed.sha256,
+                "Normal Model",
+            )
+            .await
+            {
+                log::warn!(
+                    "Couldn't get {}, using the CPU model: {}",
+                    fixed.filename,
+                    e
+                );
+                unavailable.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
     let _ = ort::init().with_name("AI-Normal").commit();
-    let model_path = models_dir.join(NORMAL_FILENAME);
-    let session = one_shot_session(&model_path)?;
-    let normal_model = Arc::new(Mutex::new(session));
+    let normal_model = Arc::new(NormalModel {
+        models_dir,
+        loaded: Mutex::new(None),
+        unavailable,
+    });
 
     crate::register_exit_handler();
 
@@ -3274,63 +3420,78 @@ fn build_normal_depth(points: &[f32], mask: &[f32]) -> Vec<u8> {
         .collect()
 }
 
-pub fn run_normal_model(
-    image: &DynamicImage,
-    normal_session: &Mutex<Session>,
-) -> Result<RgbaImage> {
+pub fn run_normal_model(image: &DynamicImage, normal_model: &NormalModel) -> Result<RgbaImage> {
     let resized_image = if image.width().max(image.height()) > NORMAL_MAX_SIZE {
         image.resize(NORMAL_MAX_SIZE, NORMAL_MAX_SIZE, FilterType::Triangle)
     } else {
         image.clone()
     };
     let (resized_w, resized_h) = resized_image.dimensions();
-    let resized_rgb = resized_image.into_rgb8();
-    let raw_pixels = resized_rgb.as_raw();
-
     let rw = resized_w as usize;
     let rh = resized_h as usize;
 
-    let mut input_tensor: Array<f32, _> = Array::zeros((1, 3, rh, rw));
-    for y in 0..rh {
-        for x in 0..rw {
-            let idx = (y * rw + x) * 3;
-            input_tensor[[0, 0, y, x]] = raw_pixels[idx] as f32 / 255.0;
-            input_tensor[[0, 1, y, x]] = raw_pixels[idx + 1] as f32 / 255.0;
-            input_tensor[[0, 2, y, x]] = raw_pixels[idx + 2] as f32 / 255.0;
+    let graph = normal_model.fixed_graph_for(resized_w, resized_h);
+    let (normals, mask, points) = normal_model.run(graph, |graph, session| {
+        // A fixed graph gets the photo stretched to its size.
+        let input = match graph {
+            Some(g) => resized_image
+                .resize_exact(g.width, g.height, FilterType::Triangle)
+                .into_rgb8(),
+            None => resized_image.to_rgb8(),
+        };
+        let (iw, ih) = (input.width() as usize, input.height() as usize);
+        let input_tensor = Array4::from_shape_fn((1, 3, ih, iw), |(_, c, y, x)| {
+            input.as_raw()[(y * iw + x) * 3 + c] as f32 / 255.0
+        });
+        let t_image = Tensor::from_array(input_tensor.into_dyn())?;
+
+        let outputs = match graph {
+            Some(_) => session.run(ort::inputs!["image" => t_image])?,
+            None => session.run(ort::inputs![
+                "image" => t_image,
+                "num_tokens" => Tensor::from_array(ndarray::arr0(NORMAL_NUM_TOKENS))?,
+            ])?,
+        };
+
+        let normal_tensor = outputs["normal"].try_extract_array::<f32>()?;
+        let mask_tensor = outputs["mask"].try_extract_array::<f32>()?;
+        let points_tensor = outputs["points"].try_extract_array::<f32>()?;
+
+        if normal_tensor.shape() != [1, ih, iw, 3]
+            || mask_tensor.shape() != [1, ih, iw]
+            || points_tensor.shape() != [1, ih, iw, 3]
+        {
+            return Err(anyhow::anyhow!(
+                "Unexpected normal model output shape: {:?} / {:?} / {:?}",
+                normal_tensor.shape(),
+                mask_tensor.shape(),
+                points_tensor.shape()
+            ));
         }
-    }
 
-    let t_image = Tensor::from_array(input_tensor.into_dyn())?;
-    let t_num_tokens = Tensor::from_array(ndarray::arr0(NORMAL_NUM_TOKENS))?;
-
-    let mut session = normal_session.lock().unwrap();
-    let outputs = session.run(ort::inputs![
-        "image" => t_image,
-        "num_tokens" => t_num_tokens,
-    ])?;
-
-    let normal_tensor = outputs["normal"].try_extract_array::<f32>()?;
-    let mask_tensor = outputs["mask"].try_extract_array::<f32>()?;
-    let points_tensor = outputs["points"].try_extract_array::<f32>()?;
-
-    if normal_tensor.shape() != [1, rh, rw, 3]
-        || mask_tensor.shape() != [1, rh, rw]
-        || points_tensor.shape() != [1, rh, rw, 3]
-    {
-        return Err(anyhow::anyhow!(
-            "Unexpected normal model output shape: {:?} / {:?} / {:?}",
-            normal_tensor.shape(),
-            mask_tensor.shape(),
-            points_tensor.shape()
-        ));
-    }
-
-    let normals = normal_tensor.as_standard_layout();
-    let normals = normals.as_slice().unwrap();
-    let mask = mask_tensor.as_standard_layout();
-    let mask = mask.as_slice().unwrap();
-    let points = points_tensor.as_standard_layout();
-    let depth = build_normal_depth(points.as_slice().unwrap(), mask);
+        // Back onto the photo's own grid.
+        let to_photo = |values: Vec<f32>, channels: usize| {
+            if (iw, ih) == (rw, rh) {
+                return values;
+            }
+            let planes: Vec<Vec<f32>> = (0..channels)
+                .map(|c| {
+                    let plane: Vec<f32> =
+                        values.iter().skip(c).step_by(channels).copied().collect();
+                    resample_grid(&plane, iw, ih, rw, rh)
+                })
+                .collect();
+            (0..rw * rh * channels)
+                .map(|i| planes[i % channels][i / channels])
+                .collect()
+        };
+        Ok((
+            to_photo(normal_tensor.iter().copied().collect(), 3),
+            to_photo(mask_tensor.iter().copied().collect(), 1),
+            to_photo(points_tensor.iter().copied().collect(), 3),
+        ))
+    })?;
+    let depth = build_normal_depth(&points, &mask);
 
     let pack = |v: f32| ((v * 0.5 + 0.5).clamp(0.0, 1.0) * 255.0).round() as u8;
 
@@ -3509,5 +3670,34 @@ mod model_cache_tests {
         );
         assert!(cache.join("123/model.txt").exists());
         fs::remove_dir_all(&cache).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod normal_model_tests {
+    use super::*;
+
+    #[test]
+    fn photos_use_the_fixed_graph_of_their_orientation_within_the_stretch_limit() {
+        let (landscape, portrait) = (Some(0), Some(1));
+        assert_eq!(NORMAL_FIXED[0].width, 768);
+        assert_eq!(NORMAL_FIXED[1].height, 768);
+        for (width, height, expected) in [
+            (768, 512, landscape),
+            (512, 768, portrait),
+            (768, 576, landscape), // 4:3
+            (576, 768, portrait),
+            (768, 432, landscape), // 16:9
+            (432, 768, portrait),
+            (5000, 4000, landscape), // 5:4, stretched by exactly NORMAL_MAX_STRETCH
+            (768, 768, None),
+            (768, 384, None), // 2:1
+        ] {
+            assert_eq!(
+                fixed_normal_graph(width, height),
+                expected,
+                "{width}x{height}"
+            );
+        }
     }
 }

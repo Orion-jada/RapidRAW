@@ -303,7 +303,7 @@ pub async fn generate_relight_normal_map(
     .await
     .map_err(|e| e.to_string())?;
 
-    // ~4s on the CPU, so it runs off the async runtime.
+    // Up to ~4s (and a first CoreML compile), so it runs off the async runtime.
     let loaded_image = get_loaded_image(&state)?;
     let normal_img = tauri::async_runtime::spawn_blocking(move || {
         let source_image = crate::mask_generation::build_converted_source_image(
