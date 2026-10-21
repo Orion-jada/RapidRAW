@@ -137,7 +137,8 @@ const DEPTH_SKY_THRESHOLD: f32 = 0.3;
 // MoGe-3 ViT-L (MIT): normals and points for Relight, without MoGe-3's CUDA-only sparse
 // refiner, which only refines depth. Takes any photo shape, so it runs on the CPU (~4s);
 // CoreML only compiles fixed shapes. Weights are stored as float16 and cast back at load.
-const NORMAL_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/moge3-v1/moge3_vitl_normal.onnx";
+const NORMAL_URL: &str =
+    "https://github.com/Orion-jada/RapidRAW/releases/download/moge3-v1/moge3_vitl_normal.onnx";
 const NORMAL_FILENAME: &str = "moge3_vitl_normal.onnx";
 const NORMAL_MAX_SIZE: u32 = 768;
 const NORMAL_NUM_TOKENS: i64 = 2500;
