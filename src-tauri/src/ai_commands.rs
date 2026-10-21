@@ -9,8 +9,8 @@ use crate::ai_connector;
 use crate::ai_processing::{
     AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters, CachedDepthMap, generate_image_embeddings, get_or_init_ai_models,
-    get_or_init_foreground_model, get_or_init_sky_model, run_birefnet_model,
-    run_depth_anything_model, run_sam_decoder, run_sky_seg_model,
+    get_or_init_depth_model, get_or_init_foreground_model, get_or_init_sky_model,
+    run_birefnet_model, run_depth_anything_model, run_sam_decoder, run_sky_seg_model,
 };
 use crate::app_settings::load_settings;
 use crate::app_state::{AiTaskGuard, AppState};
@@ -176,7 +176,7 @@ pub async fn generate_ai_depth_mask(
         return Err("Task cancelled".to_string());
     }
 
-    let models = get_or_init_ai_models(&app_handle, &state.ai_state, &state.ai_init_lock)
+    let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -198,61 +198,40 @@ pub async fn generate_ai_depth_mask(
         return Err("Task cancelled".to_string());
     }
 
-    let cached_depth = {
-        let mut ai_state_lock = state.ai_state.lock().unwrap();
-        let ai_state = ai_state_lock.as_mut().unwrap();
+    let cached_depth = state
+        .ai_state
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|ai_state| ai_state.depth_map.clone())
+        .filter(|cached| cached.path_hash == path_hash);
 
-        if let Some(cached) = &ai_state.depth_map {
-            if cached.path_hash == path_hash {
-                cached.clone()
-            } else {
-                drop(ai_state_lock);
-                let warped_image = get_cached_full_warped_image(&state, &js_adjustments)?;
-
-                if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-                    return Err("Task cancelled".to_string());
-                }
-
-                let depth_img = run_depth_anything_model(
-                    warped_image.as_ref(),
-                    &*models.depth_anything().map_err(|e| e.to_string())?,
-                )
-                .map_err(|e| e.to_string())?;
-
-                let new_cache = CachedDepthMap {
-                    path_hash: path_hash.clone(),
-                    depth_image: depth_img,
-                    original_size: (warped_image.width(), warped_image.height()),
-                };
-
-                let mut ai_state_lock = state.ai_state.lock().unwrap();
-                let ai_state = ai_state_lock.as_mut().unwrap();
-                ai_state.depth_map = Some(new_cache.clone());
-                new_cache
-            }
-        } else {
-            drop(ai_state_lock);
+    let cached_depth = match cached_depth {
+        Some(cached) => cached,
+        None => {
             let warped_image = get_cached_full_warped_image(&state, &js_adjustments)?;
 
             if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
                 return Err("Task cancelled".to_string());
             }
 
-            let depth_img = run_depth_anything_model(
-                warped_image.as_ref(),
-                &*models.depth_anything().map_err(|e| e.to_string())?,
-            )
+            let original_size = (warped_image.width(), warped_image.height());
+            // ~0.25s on CoreML but seconds on CPU, so keep it off the async runtime's threads.
+            let depth_img = tauri::async_runtime::spawn_blocking(move || {
+                run_depth_anything_model(&warped_image, &depth_model)
+            })
+            .await
+            .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;
 
             let new_cache = CachedDepthMap {
                 path_hash: path_hash.clone(),
                 depth_image: depth_img,
-                original_size: (warped_image.width(), warped_image.height()),
+                original_size,
             };
-
-            let mut ai_state_lock = state.ai_state.lock().unwrap();
-            let ai_state = ai_state_lock.as_mut().unwrap();
-            ai_state.depth_map = Some(new_cache.clone());
+            if let Some(ai_state) = state.ai_state.lock().unwrap().as_mut() {
+                ai_state.depth_map = Some(new_cache.clone());
+            }
             new_cache
         }
     };
@@ -290,25 +269,21 @@ pub async fn generate_full_image_depth_map(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
-    let models = crate::ai_processing::get_or_init_ai_models(
-        &app_handle,
-        &state.ai_state,
-        &state.ai_init_lock,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let loaded_image = get_loaded_image(&state)?;
-    let source_image = crate::mask_generation::build_converted_source_image(
-        &loaded_image.image,
-        loaded_image.is_raw,
-        &js_adjustments,
-    );
-
-    let depth_img = crate::ai_processing::run_depth_anything_model(
-        source_image.as_ref(),
-        &*models.depth_anything().map_err(|e| e.to_string())?,
-    )
+    let depth_img = tauri::async_runtime::spawn_blocking(move || {
+        let source_image = crate::mask_generation::build_converted_source_image(
+            &loaded_image.image,
+            loaded_image.is_raw,
+            &js_adjustments,
+        );
+        run_depth_anything_model(source_image.as_ref(), &depth_model)
+    })
+    .await
+    .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
 
     crate::effect_maps::encode_source_space_map(&image::DynamicImage::ImageLuma8(depth_img))

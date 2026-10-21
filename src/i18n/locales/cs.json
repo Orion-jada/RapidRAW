@@ -465,6 +465,8 @@
         "quickErase_other": "Rychlé vymazání {{count}}",
         "retouch": "Retuš {{count}}"
       },
+      "recalculateDepth": "Přepočítat hloubku",
+      "recalculateDepthTooltip": "Znovu vypočítat hloubkovou mapu aktuálním modelem AI",
       "resetInpaintingTooltip": "Obnovit AI retuš",
       "settings": {
         "aiModelDownloading": "Stažení modelu AI: ",

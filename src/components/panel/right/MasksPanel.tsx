@@ -52,6 +52,7 @@ import AdjustmentSection from '../../adjustments/AdjustmentSection';
 import ConnectedWaveform from '../editor/ConnectedWaveform';
 import Resizer from '../../ui/Resizer';
 import { DepthRangePicker } from '../../ui/DepthRangePicker';
+import RecalculateDepthButton from '../../ui/RecalculateDepthButton';
 import AdjustmentSectionsSubMenu from './AdjustmentSectionsSubMenu';
 
 import {
@@ -1188,6 +1189,7 @@ export default function MasksPanel() {
                       container={activeContainer}
                       activeSubMask={activeSubMaskData || null}
                       aiModelDownloadStatus={aiModelDownloadStatus}
+                      activeAiTasks={activeAiTasks}
                       brushSettings={brushSettings}
                       setBrushSettings={setBrushSettings}
                       updateContainer={updateContainer}
@@ -1920,6 +1922,7 @@ function SettingsPanel({
   container,
   activeSubMask,
   aiModelDownloadStatus,
+  activeAiTasks,
   brushSettings,
   setBrushSettings,
   updateContainer,
@@ -2264,6 +2267,13 @@ function SettingsPanel({
                   onDragStateChange={onDragStateChange}
                 />
               ))}
+
+              {activeSubMask.type === Mask.AiDepth && (
+                <RecalculateDepthButton
+                  isCalculating={Boolean(activeAiTasks?.[activeSubMask.id])}
+                  onClick={() => handleGenerateAiDepthMask(activeSubMask.id, activeSubMask.parameters)}
+                />
+              )}
 
               {activeSubMask.type === Mask.Polygon && (
                 <Text variant={TextVariants.small} color={TextColors.secondary} className="leading-relaxed">

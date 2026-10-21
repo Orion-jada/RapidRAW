@@ -27,6 +27,7 @@ import Text from '../ui/Text';
 import AdjustmentSubSection from './AdjustmentSubSection';
 import { TextVariants } from '../../types/typography';
 import { DepthRangePicker } from '../ui/DepthRangePicker';
+import RecalculateDepthButton from '../ui/RecalculateDepthButton';
 import { useProcessStore } from '../../store/useProcessStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -531,6 +532,8 @@ function EffectsPanel({
                         }}
                         onDragStateChange={onDragStateChange}
                       />
+
+                      <RecalculateDepthButton onClick={handleGenerateLensBlurDepthMap} />
                     </>
                   )}
                 </SpatialEffect>
@@ -934,6 +937,8 @@ function EffectsPanel({
                         trackClassName="tint-gradient-track"
                         onDragStateChange={onDragStateChange}
                       />
+
+                      <RecalculateDepthButton onClick={handleGenerateFogDepthMap} />
                     </>
                   )}
                 </SpatialEffect>

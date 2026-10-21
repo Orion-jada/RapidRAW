@@ -465,6 +465,8 @@
         "quickErase_other": "Esborrat ràpid {{count}}",
         "retouch": "Retoc {{count}}"
       },
+      "recalculateDepth": "Recalcula la profunditat",
+      "recalculateDepthTooltip": "Torna a calcular el mapa de profunditat amb el model d'IA actual",
       "resetInpaintingTooltip": "Restablir Inpainting",
       "settings": {
         "aiModelDownloading": "S'està baixant el model d'IA: ",

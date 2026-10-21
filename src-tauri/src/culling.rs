@@ -321,7 +321,7 @@ impl Luma {
 }
 
 /// Nearest-rank percentile; reorders `values`.
-fn percentile(values: &mut [f32], q: f32) -> f32 {
+pub(crate) fn percentile(values: &mut [f32], q: f32) -> f32 {
     let i = ((values.len() - 1) as f32 * q).round() as usize;
     *values.select_nth_unstable_by(i, f32::total_cmp).1
 }

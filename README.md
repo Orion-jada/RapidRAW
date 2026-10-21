@@ -57,6 +57,7 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 - **Subject mask with SAM 2.1:** Replaces SAM 1 with SAM 2.1 (Hiera Base+). Dragging a box now takes about 0.6 s instead of 2 s.
 - **Foreground mask with BiRefNet:** Replaces U²-Net with BiRefNet (1024 px), at about 0.55 s per full-resolution mask on the GPU.
 - **Sky mask with SkyWater-Seg:** Replaces U²-Net with SkyWater-Seg. It picks up small patches of sky, gives clean edges around antennas and rooftops, and no longer marks bright windows or reflections as sky. About 0.5 s per mask.
+- **Depth with Depth Anything 3:** Depth masks, lens blur and fog use Depth Anything 3 Mono-Large instead of Depth Anything V2 Small. Outlines of hair, ears and hands are much crisper, and people stand out from busy backgrounds, which V2 often put at the same distance. The model is downloaded only when you first use depth (670 MB) and takes about 0.2 s per photo on the GPU. On a Mac, macOS needs a few minutes to prepare it the first time; depth works on the CPU meanwhile, at a few seconds per photo. Depth masks, lens blur and fog made before keep their saved depth map; click **Recalculate depth** under any of them to redo it with Depth Anything 3.
 - **Subtract from masks:** A **Subtract** button next to "Add New Component" takes away any component type from a mask: brush, linear, radial, AI masks or ranges. Use a brush to trim a subject mask that grabbed too much, or combine linear gradients to shape an exact area. Soft edges fade out instead of leaving hard holes.
 - **Polygon mask:** Click around an area to outline it with straight edges, then click the first point, double-click or press Enter to close it. Drag points to reshape it, drag an edge's middle handle to add a point, double-click a point to remove it, and use Feather to soften the edge. It also works for AI generative replace.
 
@@ -114,17 +115,18 @@ npm run tauri build
 
 Each AI tool downloads its model the first time you use it, then keeps it. The models added in this version come from this repository's [releases](https://github.com/Orion-jada/RapidRAW/releases):
 
-| Tool               | Model         | Download     |
-| ------------------ | ------------- | ------------ |
-| Subject mask       | SAM 2.1 Base+ | 172 MB       |
-| Foreground mask    | BiRefNet      | 507 MB       |
-| Sky mask           | SkyWater-Seg  | 50 MB        |
-| RAW denoise        | RawNIND       | 31 MB        |
-| RAW denoise, Bayer | RawNIND Bayer | 31 MB        |
-| 2× upscale         | RealPLKSR     | 32 MB        |
-| Search and culling | SigLIP 2      | about 500 MB |
+| Tool               | Model                       | Download     |
+| ------------------ | --------------------------- | ------------ |
+| Subject mask       | SAM 2.1 Base+               | 172 MB       |
+| Foreground mask    | BiRefNet                    | 507 MB       |
+| Sky mask           | SkyWater-Seg                | 50 MB        |
+| Depth, lens blur   | Depth Anything 3 Mono-Large | 670 MB       |
+| RAW denoise        | RawNIND                     | 31 MB        |
+| RAW denoise, Bayer | RawNIND Bayer               | 31 MB        |
+| 2× upscale         | RealPLKSR                   | 32 MB        |
+| Search and culling | SigLIP 2                    | about 500 MB |
 
-The other models (depth, tagging, inpainting, and denoise for non-RAW files) come from the original project. On a Mac, the first use of each model is slower while macOS prepares it for the GPU; after that it's cached. The SkyWater-Seg sky model is licensed for non-commercial use only.
+The other models (tagging, inpainting, and denoise for non-RAW files) come from the original project. On a Mac, the first use of each model is slower while macOS prepares it for the GPU; after that it's cached. The SkyWater-Seg sky model is licensed for non-commercial use only.
 
 ---
 
@@ -795,7 +797,7 @@ I've designed RapidRAW's AI architecture with absolute flexibility, privacy, and
 
 These features are integrated directly into RapidRAW and run entirely on your local machine using your CPU or GPU. They are fast, completely private, free, and require zero setup:
 
-- **AI Masking:** Instantly detect and mask subjects, skies, foregrounds, and depth maps (powered by SAM 2, BiRefNet, SkyWater-Seg, and Depth Anything V2).
+- **AI Masking:** Instantly detect and mask subjects, skies, foregrounds, and depth maps (powered by SAM 2, BiRefNet, SkyWater-Seg, and Depth Anything 3).
 - **Automatic Tagging:** The image library is automatically indexed with keywords using a local CLIP model for effortless search.
 - **Natural-Language Search:** Turn on AI search (the sparkles button in the library search bar) and describe a photo, like "dog on a beach" or "red car at night", in any of many languages. A local SigLIP 2 model ranks the folder by relevance, running on the GPU on Apple Silicon.
 - **Smart Culling:** Groups bursts and near-duplicates by what is in the frame (with the same SigLIP 2 model) and by capture time, picks the sharpest, best-exposed shot of each group, and flags out-of-focus or motion-blurred photos by measuring how wide their sharpest edges are, which a noisy high-ISO photo cannot fool.
@@ -1132,7 +1134,7 @@ A huge thank you to the following projects and tools that were very important in
 - **[SkyWater-Seg](https://huggingface.co/Realcat/skywater_seg):** For the sky segmentation model that powers the AI sky detection capabilities.
 - **[SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224):** For Google's Apache-2.0 multilingual image-text model that powers natural-language photo search.
 - **[BiRefNet](https://github.com/ZhengPeng7/BiRefNet):** For the high-accuracy segmentation model that powers the AI foreground detection capabilities.
-- **[Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2):** For the powerful monocular depth estimation model that enables the AI depth masking capabilities.
+- **[Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3):** For ByteDance Seed's Apache-2.0 monocular depth estimation model that enables the AI depth masking capabilities.
 - **[nind-denoise](https://github.com/trougnouf/nind-denoise) / [RawNIND](https://github.com/trougnouf/rawnind_jddc):** For providing AI models that power the AI noise reduction capabilities in RapidRAW (RawNIND for RAW files, via [darktable-ai](https://github.com/darktable-org/darktable-ai)'s ONNX export).
 - **[2xPublic RealPLKSR](https://github.com/Phhofm/models):** For Philip Hofmann's Apache-2.0 super-resolution model that powers AI upscaling on export.
 - **[NegPy](https://github.com/marcinz606/NegPy):** For the inspiration behind the negative conversion logic, particularly the mathematical approach to film inversion using characteristic curves.

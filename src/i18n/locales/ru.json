@@ -506,6 +506,8 @@
         "quickErase_other": "Быстрое стирание {{count}}",
         "retouch": "Ретушь {{count}}"
       },
+      "recalculateDepth": "Пересчитать глубину",
+      "recalculateDepthTooltip": "Заново рассчитать карту глубины текущей моделью ИИ",
       "resetInpaintingTooltip": "Сбросить восстановление",
       "settings": {
         "aiModelDownloading": "Загрузка ИИ-модели: ",

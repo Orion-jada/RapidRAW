@@ -485,6 +485,8 @@
         "quickErase_other": "Borrado rápido {{count}}",
         "retouch": "Retoque {{count}}"
       },
+      "recalculateDepth": "Recalcular profundidad",
+      "recalculateDepthTooltip": "Vuelve a calcular el mapa de profundidad con el modelo de IA actual",
       "resetInpaintingTooltip": "Restablecer Inpainting",
       "settings": {
         "aiModelDownloading": "Descargando modelo de IA: ",

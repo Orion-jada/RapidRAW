@@ -462,6 +462,8 @@
         "quickErase_other": "クイック消去 {{count}}",
         "retouch": "レタッチ {{count}}"
       },
+      "recalculateDepth": "深度を再計算",
+      "recalculateDepthTooltip": "現在のAIモデルで深度マップを再計算します",
       "resetInpaintingTooltip": "インペインティングをリセット",
       "settings": {
         "aiModelDownloading": "AIモデルをダウンロード中: ",

@@ -462,6 +462,8 @@
         "quickErase_other": "快速擦除 {{count}}",
         "retouch": "修饰 {{count}}"
       },
+      "recalculateDepth": "重新计算深度",
+      "recalculateDepthTooltip": "使用当前 AI 模型重新计算深度图",
       "resetInpaintingTooltip": "重置图像修复",
       "settings": {
         "aiModelDownloading": "AI 模型下载中：",

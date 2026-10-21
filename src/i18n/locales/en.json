@@ -464,6 +464,8 @@
         "quickErase_other": "Quick Erase {{count}}",
         "retouch": "Retouch {{count}}"
       },
+      "recalculateDepth": "Recalculate depth",
+      "recalculateDepthTooltip": "Calculate the depth map again with the current AI model",
       "resetInpaintingTooltip": "Reset Inpainting",
       "settings": {
         "aiModelDownloading": "AI Model Downloading: ",

@@ -464,6 +464,8 @@
         "quickErase_other": "Schnelles Löschen {{count}}",
         "retouch": "Retusche {{count}}"
       },
+      "recalculateDepth": "Tiefe neu berechnen",
+      "recalculateDepthTooltip": "Die Tiefenkarte mit dem aktuellen KI-Modell neu berechnen",
       "resetInpaintingTooltip": "Reparieren zurücksetzen",
       "settings": {
         "aiModelDownloading": "KI-Modell wird heruntergeladen: ",

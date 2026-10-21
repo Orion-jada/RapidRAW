@@ -458,6 +458,8 @@
         "quickErase_other": "Snel verwijderen {{count}}",
         "retouch": "Retouche {{count}}"
       },
+      "recalculateDepth": "Diepte opnieuw berekenen",
+      "recalculateDepthTooltip": "De dieptekaart opnieuw berekenen met het huidige AI-model",
       "resetInpaintingTooltip": "Inpainting herstellen",
       "settings": {
         "aiModelDownloading": "AI-model downloaden: ",

@@ -506,6 +506,8 @@
         "quickErase_other": "Szybkie wymazanie {{count}}",
         "retouch": "Retusz {{count}}"
       },
+      "recalculateDepth": "Przelicz głębię",
+      "recalculateDepthTooltip": "Oblicz ponownie mapę głębi bieżącym modelem AI",
       "resetInpaintingTooltip": "Resetuj Inpainting",
       "settings": {
         "aiModelDownloading": "Pobieranie modelu AI: ",

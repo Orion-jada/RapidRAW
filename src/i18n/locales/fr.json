@@ -485,6 +485,8 @@
         "quickErase_other": "Gommages rapides {{count}}",
         "retouch": "Retouche {{count}}"
       },
+      "recalculateDepth": "Recalculer la profondeur",
+      "recalculateDepthTooltip": "Recalculer la carte de profondeur avec le modèle d'IA actuel",
       "resetInpaintingTooltip": "Réinitialiser l'Inpainting",
       "settings": {
         "aiModelDownloading": "Téléchargement du modèle IA : ",

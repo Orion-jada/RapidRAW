@@ -122,10 +122,17 @@ const LAMA_URL: &str =
 const LAMA_FILENAME: &str = "lama_fp16.onnx";
 const LAMA_SHA256: &str = "2d6be6277c400d6f1b91819737f7c3da935e5c63d1b521d393be1196a2bfa82c";
 
-const DEPTH_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/depth_anything_v2_vits.onnx?download=true";
-const DEPTH_FILENAME: &str = "depth_anything_v2_vits.onnx";
-const DEPTH_INPUT_SIZE: u32 = 518;
-const DEPTH_SHA256: &str = "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b526304f2562be";
+// Depth Anything 3 Mono-Large (Apache-2.0): relative depth for single photos, plus a sky head.
+// Fixed to a 756x504 input so CoreML runs the whole graph (~0.2s on an M3 Max GPU). Photos of
+// other shapes are stretched to it, which changes the map far less than padding them would.
+// Weights are stored as float16 and cast back to float32 at load.
+const DEPTH_URL: &str = "https://github.com/Orion-jada/RapidRAW/releases/download/depth3-v1/da3_mono_large_756x504.onnx";
+const DEPTH_FILENAME: &str = "da3_mono_large_756x504.onnx";
+const DEPTH_SHA256: &str = "eebb44105382fcc2118de9e03ab22fcdbfee549cdf332d56231d2c3160ddcdab";
+const DEPTH_INPUT_WIDTH: u32 = 756;
+const DEPTH_INPUT_HEIGHT: u32 = 504;
+/// Sky head scores at or above this are sky, as in Depth Anything 3's own pipeline.
+const DEPTH_SKY_THRESHOLD: f32 = 0.3;
 
 const NORMAL_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/moge-2-vits-normal-onnx.onnx?download=true";
 const NORMAL_FILENAME: &str = "moge-2-vits-normal-onnx.onnx";
@@ -139,7 +146,6 @@ pub struct AiModels {
     models_dir: PathBuf,
     sam_encoder: Mutex<Option<SharedSession>>,
     sam_decoder: Mutex<Option<SharedSession>>,
-    depth_anything: Mutex<Option<SharedSession>>,
 }
 
 impl AiModels {
@@ -177,15 +183,6 @@ impl AiModels {
 
     pub fn sam_decoder(&self) -> Result<SharedSession> {
         self.session(&self.sam_decoder, DECODER_FILENAME, DECODER_SHA256, None)
-    }
-
-    pub fn depth_anything(&self) -> Result<SharedSession> {
-        self.session(
-            &self.depth_anything,
-            DEPTH_FILENAME,
-            DEPTH_SHA256,
-            Some(CoreMLComputeUnits::CPUAndGPU),
-        )
     }
 }
 
@@ -239,6 +236,7 @@ pub struct AiState {
     pub search_models: Option<Arc<SearchModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
     pub normal_model: Option<Arc<Mutex<Session>>>,
+    pub depth_model: Option<Arc<Mutex<Session>>>,
     pub embeddings: Option<ImageEmbeddings>,
     pub depth_map: Option<CachedDepthMap>,
 }
@@ -487,6 +485,11 @@ const SUPERSEDED_MODELS: &[(&[&str], &str)] = &[
     (
         &["skyseg_u2net.onnx", "skyseg-u2net.onnx"],
         "ab9c34c64c3d821220a2886a4a06da4642ffa14d5b30e8d5339056a089aa1d39",
+    ),
+    // Depth Anything V2 Small, replaced by Depth Anything 3 Mono-Large
+    (
+        &["depth_anything_v2_vits.onnx"],
+        "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b526304f2562be",
     ),
 ];
 
@@ -768,15 +771,6 @@ pub async fn get_or_init_ai_models(
         "SAM Decoder",
     )
     .await?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        DEPTH_FILENAME,
-        DEPTH_URL,
-        DEPTH_SHA256,
-        "Depth Model",
-    )
-    .await?;
 
     let _ = ort::init().with_name("AI").commit();
 
@@ -786,7 +780,6 @@ pub async fn get_or_init_ai_models(
         models_dir,
         sam_encoder: Mutex::new(None),
         sam_decoder: Mutex::new(None),
-        depth_anything: Mutex::new(None),
     });
 
     let mut ai_state_lock = ai_state_mutex.lock().unwrap();
@@ -805,6 +798,7 @@ pub async fn get_or_init_ai_models(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -876,6 +870,7 @@ pub async fn get_or_init_denoise_model(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -947,6 +942,7 @@ pub async fn get_or_init_raw_denoise_model(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -1020,6 +1016,7 @@ pub async fn get_or_init_raw_bayer_denoise_model(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -1091,6 +1088,7 @@ pub async fn get_or_init_upscale_model(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -1162,6 +1160,7 @@ pub async fn get_or_init_foreground_model(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -1229,12 +1228,84 @@ pub async fn get_or_init_sky_model(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
     }
 
     Ok(sky_model)
+}
+
+pub async fn get_or_init_depth_model(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<Mutex<Session>>> {
+    if let Some(depth_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.depth_model.clone())
+    {
+        return Ok(depth_model);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(depth_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.depth_model.clone())
+    {
+        return Ok(depth_model);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        DEPTH_FILENAME,
+        DEPTH_URL,
+        DEPTH_SHA256,
+        "Depth Model",
+    )
+    .await?;
+
+    let _ = ort::init().with_name("AI-Depth").commit();
+    // CoreML takes minutes to compile this model the first time, so it starts on CPU.
+    let depth_model = build_session_upgrading(
+        &models_dir.join(DEPTH_FILENAME),
+        DEPTH_SHA256,
+        CoreMLComputeUnits::CPUAndGPU,
+    )?;
+
+    crate::register_exit_handler();
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.depth_model = Some(depth_model.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            raw_denoise_model: None,
+            raw_bayer_denoise_model: None,
+            upscale_model: None,
+            foreground_model: None,
+            sky_model: None,
+            clip_models: None,
+            search_models: None,
+            lama_model: None,
+            normal_model: None,
+            depth_model: Some(depth_model.clone()),
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(depth_model)
 }
 
 pub async fn get_or_init_clip_models(
@@ -1308,6 +1379,7 @@ pub async fn get_or_init_clip_models(
             search_models: None,
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -1401,6 +1473,7 @@ pub async fn get_or_init_search_models(
             search_models: Some(search_models.clone()),
             lama_model: None,
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -1468,6 +1541,7 @@ pub async fn get_or_init_lama_model(
             search_models: None,
             lama_model: Some(lama_model.clone()),
             normal_model: None,
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -1535,6 +1609,7 @@ pub async fn get_or_init_normal_model(
             search_models: None,
             lama_model: None,
             normal_model: Some(normal_model.clone()),
+            depth_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -3008,87 +3083,89 @@ fn upscale_grid(
     GrayImage::from_raw(width, height, out).expect("buffer matches dimensions")
 }
 
+/// Depth Anything 3's relative depth as disparity (near is bright, sky is black), the way
+/// Depth Anything V2 reported it, so depth masks, lens blur and fog read it as before. The map has
+/// the photo's aspect ratio with its long side at the model's 756px.
 pub fn run_depth_anything_model(
     image: &DynamicImage,
     depth_session: &Mutex<Session>,
 ) -> Result<GrayImage> {
-    let resized_image = image.resize(DEPTH_INPUT_SIZE, DEPTH_INPUT_SIZE, FilterType::Triangle);
-    let (resized_w, resized_h) = resized_image.dimensions();
-    let resized_rgb = resized_image.into_rgb8();
-    let raw_pixels = resized_rgb.as_raw();
+    let (width, height) = (DEPTH_INPUT_WIDTH as usize, DEPTH_INPUT_HEIGHT as usize);
+    let t_input = Tensor::from_array(
+        imagenet_tensor(&imageops::thumbnail(
+            &image.to_rgb8(),
+            DEPTH_INPUT_WIDTH,
+            DEPTH_INPUT_HEIGHT,
+        ))
+        .into_dyn(),
+    )?;
 
-    let paste_x = ((DEPTH_INPUT_SIZE - resized_w) / 2) as usize;
-    let paste_y = ((DEPTH_INPUT_SIZE - resized_h) / 2) as usize;
-
-    let mut input_tensor: Array<f32, _> =
-        Array::zeros((1, 3, DEPTH_INPUT_SIZE as usize, DEPTH_INPUT_SIZE as usize));
-
-    let mean = [0.485, 0.456, 0.406];
-    let std = [0.229, 0.224, 0.225];
-
-    let rw = resized_w as usize;
-    let rh = resized_h as usize;
-
-    for y in 0..rh {
-        for x in 0..rw {
-            let idx = (y * rw + x) * 3;
-            let dest_y = y + paste_y;
-            let dest_x = x + paste_x;
-
-            input_tensor[[0, 0, dest_y, dest_x]] =
-                (raw_pixels[idx] as f32 / 255.0 - mean[0]) / std[0];
-            input_tensor[[0, 1, dest_y, dest_x]] =
-                (raw_pixels[idx + 1] as f32 / 255.0 - mean[1]) / std[1];
-            input_tensor[[0, 2, dest_y, dest_x]] =
-                (raw_pixels[idx + 2] as f32 / 255.0 - mean[2]) / std[2];
-        }
+    let (depth, sky): (Vec<f32>, Vec<f32>) = {
+        let mut session = depth_session.lock().unwrap();
+        let outputs = session.run(ort::inputs![t_input])?;
+        let depth = outputs["depth"].try_extract_array::<f32>()?;
+        let sky = outputs["sky"].try_extract_array::<f32>()?;
+        (
+            depth.iter().copied().collect(),
+            sky.iter().copied().collect(),
+        )
+    };
+    if depth.len() != width * height || sky.len() != depth.len() {
+        return Err(anyhow::anyhow!("Unexpected Depth Anything output size"));
     }
 
-    let input_tensor_dyn = input_tensor.into_dyn();
-    let t_input = Tensor::from_array(input_tensor_dyn.as_standard_layout().into_owned())?;
+    let (orig_width, orig_height) = image.dimensions();
+    let fit = DEPTH_INPUT_WIDTH as f32 / orig_width.max(orig_height).max(1) as f32;
+    Ok(disparity_map(
+        depth,
+        &sky,
+        (width, height),
+        (
+            ((orig_width as f32 * fit).round() as u32).max(1),
+            ((orig_height as f32 * fit).round() as u32).max(1),
+        ),
+    ))
+}
 
-    let mut session = depth_session.lock().unwrap();
-    let outputs = session.run(ort::inputs![t_input])?;
-    let output_tensor = outputs[0].try_extract_array::<f32>()?.to_owned();
-    let out_slice = output_tensor.as_slice().unwrap();
-
-    let usize_size = DEPTH_INPUT_SIZE as usize;
-
-    let mut min_val = f32::MAX;
-    let mut max_val = f32::MIN;
-    for y in 0..rh {
-        let src_y = y + paste_y;
-        for x in 0..rw {
-            let src_x = x + paste_x;
-            let val = out_slice[src_y * usize_size + src_x];
-            min_val = min_val.min(val);
-            max_val = max_val.max(val);
-        }
-    }
-
-    let range = max_val - min_val;
-    let scale = if range > 1e-6 { 255.0 / range } else { 0.0 };
-
-    let mut cropped_depth_data = Vec::with_capacity(rw * rh);
-
-    for y in 0..rh {
-        let src_y = y + paste_y;
-        for x in 0..rw {
-            let src_x = x + paste_x;
-            let val = out_slice[src_y * usize_size + src_x];
-            let pixel = if range > 1e-6 {
-                ((val - min_val) * scale) as u8
+/// Turns Depth Anything 3's depth and sky outputs into an 8-bit disparity map at the output size.
+fn disparity_map(
+    mut depth: Vec<f32>,
+    sky: &[f32],
+    (width, height): (usize, usize),
+    (out_width, out_height): (u32, u32),
+) -> GrayImage {
+    // Like Depth Anything 3 itself: the sky is as far as the farthest of the rest of the photo.
+    let mut ground: Vec<f32> = depth
+        .iter()
+        .zip(sky)
+        .filter(|&(_, &s)| s < DEPTH_SKY_THRESHOLD)
+        .map(|(&d, _)| d)
+        .collect();
+    if ground.len() > 10 && depth.len() - ground.len() > 10 {
+        let far = crate::culling::percentile(&mut ground, 0.99);
+        for (d, &s) in depth.iter_mut().zip(sky) {
+            *d = if s < DEPTH_SKY_THRESHOLD {
+                d.min(far)
             } else {
-                0
+                far
             };
-            cropped_depth_data.push(pixel);
         }
     }
 
-    let depth_map = GrayImage::from_raw(resized_w, resized_h, cropped_depth_data)
-        .ok_or_else(|| anyhow::anyhow!("Failed to create mask from Depth output"))?;
+    let disparity: Vec<f32> = depth.iter().map(|&d| 1.0 / d.max(1e-6)).collect();
+    // Stretch between the 0.5th and 99.5th percentiles, so a few stray pixels can't flatten it.
+    let mut sorted = disparity.clone();
+    let low = crate::culling::percentile(&mut sorted, 0.005);
+    let high = crate::culling::percentile(&mut sorted, 0.995);
+    let scale = if high - low > 1e-6 {
+        255.0 / (high - low)
+    } else {
+        0.0
+    };
 
-    Ok(depth_map)
+    upscale_grid(&disparity, width, height, out_width, out_height, |v| {
+        ((v - low) * scale).clamp(0.0, 255.0).round() as u8
+    })
 }
 
 fn build_normal_depth(points: &[f32], mask: &[f32]) -> Vec<u8> {
@@ -3277,4 +3354,31 @@ pub struct AiDepthMaskParameters {
     pub flip_vertical: Option<bool>,
     #[serde(default)]
     pub orientation_steps: Option<u8>,
+}
+
+#[cfg(test)]
+mod depth_map_tests {
+    use super::*;
+
+    #[test]
+    fn near_is_bright_sky_is_black_and_the_map_keeps_the_photo_shape() {
+        let (width, height) = (60, 40);
+        // Depth grows towards the top of the frame; the top quarter is sky.
+        let depth: Vec<f32> = (0..width * height)
+            .map(|i| 1.0 + 4.0 * (1.0 - (i / width) as f32 / height as f32))
+            .collect();
+        let sky: Vec<f32> = (0..width * height)
+            .map(|i| if i / width < height / 4 { 0.9 } else { 0.0 })
+            .collect();
+
+        let map = disparity_map(depth, &sky, (width, height), (40, 60));
+        assert_eq!(map.dimensions(), (40, 60));
+        assert_eq!(map.get_pixel(20, 0)[0], 0, "sky is the farthest");
+        assert_eq!(
+            map.get_pixel(20, 59)[0],
+            255,
+            "the bottom row is the nearest"
+        );
+        assert!(map.get_pixel(20, 30)[0] > map.get_pixel(20, 20)[0]);
+    }
 }

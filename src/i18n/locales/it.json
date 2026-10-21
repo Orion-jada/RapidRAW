@@ -487,6 +487,8 @@
         "quickErase_other": "Cancellazione Rapida {{count}}",
         "retouch": "Ritocco {{count}}"
       },
+      "recalculateDepth": "Ricalcola profondità",
+      "recalculateDepthTooltip": "Ricalcola la mappa di profondità con il modello IA attuale",
       "resetInpaintingTooltip": "Ripristina Inpainting",
       "settings": {
         "aiModelDownloading": "Download Modello AI: ",

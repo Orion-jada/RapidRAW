@@ -1964,12 +1964,12 @@ export default function SettingsPanel({
                       </li>
                       <li>
                         <a
-                          href="https://github.com/DepthAnything/Depth-Anything-V2"
+                          href="https://github.com/ByteDance-Seed/Depth-Anything-3"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-semibold text-accent hover:underline"
                         >
-                          Depth Anything V2
+                          Depth Anything 3
                         </a>
                         : {t('settings.thanks.list.depth')}
                       </li>

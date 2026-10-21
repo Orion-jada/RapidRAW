@@ -462,6 +462,8 @@
         "quickErase_other": "빠른 지우기 {{count}}",
         "retouch": "리터칭 {{count}}"
       },
+      "recalculateDepth": "심도 다시 계산",
+      "recalculateDepthTooltip": "현재 AI 모델로 심도 맵을 다시 계산합니다",
       "resetInpaintingTooltip": "인페인팅 초기화",
       "settings": {
         "aiModelDownloading": "AI 모델 다운로드 중: ",
