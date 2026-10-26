@@ -1,18 +1,24 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use image::imageops::{self, FilterType};
 use image::{
-    DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, Rgb32FImage, Rgba, RgbaImage,
+    DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, Rgb32FImage, RgbImage, RgbaImage,
 };
-use ndarray::{Array, Array4, IxDyn};
+use ndarray::{Array, Array4, ArrayViewD, IxDyn, s};
+use ort::editor::{Graph, Model, Node, ONNX_DOMAIN, Opset, Outlet};
 use ort::execution_providers::coreml::CoreMLComputeUnits;
-use ort::session::Session;
-use ort::value::Tensor;
+use ort::execution_providers::{CPUExecutionProvider, ExecutionProviderDispatch};
+use ort::memory::Allocator;
+use ort::session::{Output, Session};
+use ort::tensor::{Shape, SymbolicDimensions, TensorElementType};
+use ort::value::{Tensor, TensorRef, ValueType};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,6 +26,8 @@ use tauri::Emitter;
 use tauri::Manager;
 use tokenizers::Tokenizer;
 use tokio::sync::Mutex as TokioMutex;
+
+use crate::face_masking::FaceAnalysis;
 
 // SAM 2.1 (Hiera Base+). The encoder is re-exported to run as one CoreML partition, with float16
 // weights cast to float32 at load. The decoder returns all four candidate masks as 256x256 logits.
@@ -182,59 +190,875 @@ struct FixedNormalGraph {
     sha256: &'static str,
 }
 
+const ZOOM_MARGIN: f32 = 0.15;
+const ZOOM_MAX_FRACTION: f32 = 0.6;
+const ZOOM_MIN_SIDE: f32 = 1024.0;
+const ZOOM_FEATHER: f32 = 0.1;
+
+const ESAM3_IMAGE_ENCODER_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/efficientsam3_ev_m_image_encoder.onnx?download=true";
+const ESAM3_IMAGE_ENCODER_FILENAME: &str = "efficientsam3_ev_m_image_encoder.onnx";
+const ESAM3_IMAGE_ENCODER_SHA256: &str =
+    "2ed08306579138120dbf9f1110fd31784d1c20fe1b67fa2187a0a2a6d7c82729";
+const ESAM3_DECODER_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/efficientsam3_ev_m_decoder.onnx?download=true";
+const ESAM3_DECODER_FILENAME: &str = "efficientsam3_ev_m_decoder.onnx";
+const ESAM3_DECODER_SHA256: &str =
+    "16accc22a07ee99c73ef8a14e286ec567f94c116e0d8efa1a3a6c0bc9a2596a8";
+const ESAM3_TEXT_ENCODER_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/efficientsam3_ev_m_text_encoder.onnx?download=true";
+const ESAM3_TEXT_ENCODER_FILENAME: &str = "efficientsam3_ev_m_text_encoder.onnx";
+const ESAM3_TEXT_ENCODER_SHA256: &str =
+    "3065ea6116f21f6e22bc70a0c041e5da9ae05fdec7b48df953394f5657609590";
+const ESAM3_FACE_PROMPT_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/efficientsam3_face_prompt.bin?download=true";
+const ESAM3_FACE_PROMPT_FILENAME: &str = "efficientsam3_face_prompt.bin";
+const ESAM3_FACE_PROMPT_SHA256: &str =
+    "8fdbe63ef853756b1da9cdc642c277a6e422452f3feaf35f4297e6aea3a1ffb9";
+const ESAM3_INPUT_SIZE: u32 = 1008;
+const ESAM3_INPUT_PADDING: u32 = 30;
+const ESAM3_PROMPT_TOKENS: usize = 16;
+const ESAM3_EMBED_DIM: usize = 256;
+const ESAM3_EXEMPLAR_SLOTS: usize = 8;
+pub const ESAM3_TEXT_SCORE_THRESHOLD: f32 = 0.3;
+pub const ESAM3_FACE_SCORE_THRESHOLD: f32 = 0.3;
+const ESAM3_MASK_LOW: f32 = 0.3;
+const ESAM3_MASK_HIGH: f32 = 0.7;
+const ESAM3_REFINE_SIZE: u32 = 1024;
+const ESAM3_REFINE_RADIUS: usize = 16;
+pub const ESAM3_TEXT_REFINE_EPS: f32 = 0.01;
+const ESAM3_ZOOM_MIN_IOU: f32 = 0.3;
+
+const FACE_LANDMARKS_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/mediapipe_face_landmarks.onnx?download=true";
+const FACE_LANDMARKS_FILENAME: &str = "mediapipe_face_landmarks.onnx";
+const FACE_LANDMARKS_SHA256: &str =
+    "6524d596b4d9151b0d8d590844566261f21de5186ac38125bdcd1de6974b0bb4";
+const FACE_SEGMENTER_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/mediapipe_selfie_multiclass.onnx?download=true";
+const FACE_SEGMENTER_FILENAME: &str = "mediapipe_selfie_multiclass.onnx";
+const FACE_SEGMENTER_SHA256: &str =
+    "a198470a4edec350a33b8182c149e417effc5e61c0506b947f226e7a81b9a08e";
+
 type SharedSession = Arc<Mutex<Session>>;
+
+const GPU_IDLE: u8 = 0;
+const GPU_ACTIVE: u8 = 1;
+const GPU_FAILED: u8 = 2;
+const GPU_DISABLED: u8 = 3;
+
+static GPU_STATUS: AtomicU8 = AtomicU8::new(GPU_IDLE);
+
+struct ModelAsset {
+    filename: &'static str,
+    url: &'static str,
+    sha256: Option<&'static str>,
+    name: &'static str,
+}
+
+const SAM_ENCODER_ASSET: ModelAsset = ModelAsset {
+    filename: ENCODER_FILENAME,
+    url: ENCODER_URL,
+    sha256: Some(ENCODER_SHA256),
+    name: "SAM Encoder",
+};
+const SAM_DECODER_ASSET: ModelAsset = ModelAsset {
+    filename: DECODER_FILENAME,
+    url: DECODER_URL,
+    sha256: Some(DECODER_SHA256),
+    name: "SAM Decoder",
+};
+const BIREFNET_ASSET: ModelAsset = ModelAsset {
+    filename: BIREFNET_FILENAME,
+    url: BIREFNET_URL,
+    sha256: Some(BIREFNET_SHA256),
+    name: "Foreground Model",
+};
+const SKY_ASSET: ModelAsset = ModelAsset {
+    filename: SKY_FILENAME,
+    url: SKY_URL,
+    sha256: Some(SKY_SHA256),
+    name: "Sky Model",
+};
+const ESAM3_IMAGE_ENCODER_ASSET: ModelAsset = ModelAsset {
+    filename: ESAM3_IMAGE_ENCODER_FILENAME,
+    url: ESAM3_IMAGE_ENCODER_URL,
+    sha256: Some(ESAM3_IMAGE_ENCODER_SHA256),
+    name: "EfficientSAM3 Encoder",
+};
+const ESAM3_DECODER_ASSET: ModelAsset = ModelAsset {
+    filename: ESAM3_DECODER_FILENAME,
+    url: ESAM3_DECODER_URL,
+    sha256: Some(ESAM3_DECODER_SHA256),
+    name: "EfficientSAM3 Decoder",
+};
+const ESAM3_TEXT_ENCODER_ASSET: ModelAsset = ModelAsset {
+    filename: ESAM3_TEXT_ENCODER_FILENAME,
+    url: ESAM3_TEXT_ENCODER_URL,
+    sha256: Some(ESAM3_TEXT_ENCODER_SHA256),
+    name: "EfficientSAM3 Text Encoder",
+};
+const ESAM3_FACE_PROMPT_ASSET: ModelAsset = ModelAsset {
+    filename: ESAM3_FACE_PROMPT_FILENAME,
+    url: ESAM3_FACE_PROMPT_URL,
+    sha256: Some(ESAM3_FACE_PROMPT_SHA256),
+    name: "Face Prompt",
+};
+const FACE_LANDMARKS_ASSET: ModelAsset = ModelAsset {
+    filename: FACE_LANDMARKS_FILENAME,
+    url: FACE_LANDMARKS_URL,
+    sha256: Some(FACE_LANDMARKS_SHA256),
+    name: "Face Landmarks Model",
+};
+const FACE_SEGMENTER_ASSET: ModelAsset = ModelAsset {
+    filename: FACE_SEGMENTER_FILENAME,
+    url: FACE_SEGMENTER_URL,
+    sha256: Some(FACE_SEGMENTER_SHA256),
+    name: "Face Segmentation Model",
+};
+const DEPTH_ASSET: ModelAsset = ModelAsset {
+    filename: DEPTH_FILENAME,
+    url: DEPTH_URL,
+    sha256: Some(DEPTH_SHA256),
+    name: "Depth Model",
+};
+const CLIP_MODEL_ASSET: ModelAsset = ModelAsset {
+    filename: CLIP_MODEL_FILENAME,
+    url: CLIP_MODEL_URL,
+    sha256: Some(CLIP_MODEL_SHA256),
+    name: "CLIP Model",
+};
+const CLIP_TOKENIZER_ASSET: ModelAsset = ModelAsset {
+    filename: CLIP_TOKENIZER_FILENAME,
+    url: CLIP_TOKENIZER_URL,
+    sha256: None,
+    name: "CLIP Tokenizer",
+};
+const DENOISE_ASSET: ModelAsset = ModelAsset {
+    filename: DENOISE_FILENAME,
+    url: DENOISE_URL,
+    sha256: Some(DENOISE_SHA256),
+    name: "NIND Denoise Model",
+};
+const RAWNIND_ASSET: ModelAsset = ModelAsset {
+    filename: RAWNIND_FILENAME,
+    url: RAWNIND_URL,
+    sha256: Some(RAWNIND_SHA256),
+    name: "RawNIND Denoise Model",
+};
+const RAWNIND_BAYER_ASSET: ModelAsset = ModelAsset {
+    filename: RAWNIND_BAYER_FILENAME,
+    url: RAWNIND_BAYER_URL,
+    sha256: Some(RAWNIND_BAYER_SHA256),
+    name: "RawNIND Bayer Denoise Model",
+};
+const UPSCALE_ASSET: ModelAsset = ModelAsset {
+    filename: UPSCALE_FILENAME,
+    url: UPSCALE_URL,
+    sha256: Some(UPSCALE_SHA256),
+    name: "Upscale Model",
+};
+const SEARCH_VISION_ASSET: ModelAsset = ModelAsset {
+    filename: SEARCH_VISION_FILENAME,
+    url: SEARCH_VISION_URL,
+    sha256: Some(SEARCH_VISION_SHA256),
+    name: "Search Image Model",
+};
+const SEARCH_TEXT_ASSET: ModelAsset = ModelAsset {
+    filename: SEARCH_TEXT_FILENAME,
+    url: SEARCH_TEXT_URL,
+    sha256: Some(SEARCH_TEXT_SHA256),
+    name: "Search Text Model",
+};
+const SEARCH_TOKENIZER_ASSET: ModelAsset = ModelAsset {
+    filename: SEARCH_TOKENIZER_FILENAME,
+    url: SEARCH_TOKENIZER_URL,
+    sha256: Some(SEARCH_TOKENIZER_SHA256),
+    name: "Search Tokenizer",
+};
+const LAMA_ASSET: ModelAsset = ModelAsset {
+    filename: LAMA_FILENAME,
+    url: LAMA_URL,
+    sha256: Some(LAMA_SHA256),
+    name: "Inpainting Model",
+};
+const NORMAL_ASSET: ModelAsset = ModelAsset {
+    filename: NORMAL_FILENAME,
+    url: NORMAL_URL,
+    sha256: Some(NORMAL_SHA256),
+    name: "Normal Model",
+};
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum AiMaskModel {
+    Subject,
+    Foreground,
+    Sky,
+    Text,
+    Face,
+    Depth,
+}
+
+impl AiMaskModel {
+    fn assets(self) -> &'static [ModelAsset] {
+        match self {
+            AiMaskModel::Subject => &[SAM_ENCODER_ASSET, SAM_DECODER_ASSET],
+            AiMaskModel::Foreground => &[BIREFNET_ASSET],
+            AiMaskModel::Sky => &[SKY_ASSET],
+            AiMaskModel::Text => &[
+                ESAM3_IMAGE_ENCODER_ASSET,
+                ESAM3_DECODER_ASSET,
+                ESAM3_TEXT_ENCODER_ASSET,
+                CLIP_TOKENIZER_ASSET,
+            ],
+            AiMaskModel::Face => &[
+                ESAM3_IMAGE_ENCODER_ASSET,
+                ESAM3_DECODER_ASSET,
+                ESAM3_FACE_PROMPT_ASSET,
+                FACE_LANDMARKS_ASSET,
+                FACE_SEGMENTER_ASSET,
+            ],
+            AiMaskModel::Depth => &[DEPTH_ASSET],
+        }
+    }
+}
+
+pub struct Esam3Features {
+    pub path_hash: String,
+    pub fpn: [Array<f32, IxDyn>; 3],
+    pub pos: Array<f32, IxDyn>,
+}
+
+pub struct Esam3Prompt {
+    features: Array<f32, IxDyn>,
+    padding: Array<f32, IxDyn>,
+}
 
 pub struct AiModels {
     models_dir: PathBuf,
+    use_gpu: bool,
+    downloaded: Mutex<HashSet<AiMaskModel>>,
     sam_encoder: Mutex<Option<SharedSession>>,
     sam_decoder: Mutex<Option<SharedSession>>,
+    birefnet: Mutex<Option<SharedSession>>,
+    sky: Mutex<Option<SharedSession>>,
+    esam3_image_encoder: Mutex<Option<SharedSession>>,
+    esam3_decoder: Mutex<Option<SharedSession>>,
+    esam3_text_encoder: Mutex<Option<SharedSession>>,
+    esam3_face_prompt: Mutex<Option<Arc<Esam3Prompt>>>,
+    clip_tokenizer: Mutex<Option<Arc<Tokenizer>>>,
+    face_landmarks: Mutex<Option<SharedSession>>,
+    face_segmenter: Mutex<Option<SharedSession>>,
+    depth_anything: Mutex<Option<SharedSession>>,
 }
 
 impl AiModels {
-    /// Loads a model the first time it's used. Models CoreML runs well are built with it; the
-    /// rest are CPU sessions without the memory arena, as they run once per action.
     fn session(
         &self,
         slot: &Mutex<Option<SharedSession>>,
         filename: &str,
-        sha256: &str,
-        coreml_units: Option<CoreMLComputeUnits>,
+        use_gpu: bool,
     ) -> Result<SharedSession> {
         let mut slot = slot.lock().unwrap();
         if let Some(session) = slot.as_ref() {
             return Ok(Arc::clone(session));
         }
-        let path = self.models_dir.join(filename);
-        let session = match coreml_units {
-            Some(_) => build_session(&path, sha256, coreml_units)?,
-            None => one_shot_session(&path)?,
+        let session = Arc::new(Mutex::new(build_session(
+            &self.models_dir.join(filename),
+            SessionKind::OneShot,
+            self.use_gpu && use_gpu,
+            None,
+        )?));
+        *slot = Some(Arc::clone(&session));
+        Ok(session)
+    }
+
+    /// Loads one of this fork's models the first time it's used: on macOS with CoreML, which
+    /// it's verified to run correctly and faster with, and on the CPU elsewhere. `upgrading`
+    /// starts a model CoreML takes seconds to prepare on the CPU, until CoreML is ready.
+    fn coreml_session(
+        &self,
+        slot: &Mutex<Option<SharedSession>>,
+        asset: &ModelAsset,
+        upgrading: bool,
+    ) -> Result<SharedSession> {
+        let mut slot = slot.lock().unwrap();
+        if let Some(session) = slot.as_ref() {
+            return Ok(Arc::clone(session));
+        }
+        let path = self.models_dir.join(asset.filename);
+        let sha256 = asset
+            .sha256
+            .expect("models compiled for CoreML have a known hash");
+        let units = self.use_gpu.then_some(CoreMLComputeUnits::CPUAndGPU);
+        let session = if upgrading {
+            build_session_upgrading(&path, sha256, units)?
+        } else {
+            Arc::new(Mutex::new(build_coreml_or_cpu_session(
+                &path,
+                sha256,
+                units,
+                SessionKind::OneShot,
+            )?))
         };
-        let session = Arc::new(Mutex::new(session));
         *slot = Some(Arc::clone(&session));
         Ok(session)
     }
 
     pub fn sam_encoder(&self) -> Result<SharedSession> {
-        self.session(
-            &self.sam_encoder,
-            ENCODER_FILENAME,
-            ENCODER_SHA256,
-            Some(CoreMLComputeUnits::CPUAndGPU),
-        )
+        self.coreml_session(&self.sam_encoder, &SAM_ENCODER_ASSET, false)
     }
 
     pub fn sam_decoder(&self) -> Result<SharedSession> {
-        self.session(&self.sam_decoder, DECODER_FILENAME, DECODER_SHA256, None)
+        self.session(&self.sam_decoder, DECODER_FILENAME, false)
+    }
+
+    pub fn birefnet(&self) -> Result<SharedSession> {
+        self.coreml_session(&self.birefnet, &BIREFNET_ASSET, false)
+    }
+
+    pub fn sky(&self) -> Result<SharedSession> {
+        self.coreml_session(&self.sky, &SKY_ASSET, false)
+    }
+
+    pub fn esam3_image_encoder(&self) -> Result<SharedSession> {
+        self.session(
+            &self.esam3_image_encoder,
+            ESAM3_IMAGE_ENCODER_FILENAME,
+            gpu_allowed_on_platform(),
+        )
+    }
+
+    pub fn esam3_decoder(&self) -> Result<SharedSession> {
+        self.session(
+            &self.esam3_decoder,
+            ESAM3_DECODER_FILENAME,
+            gpu_allowed_on_platform(),
+        )
+    }
+
+    pub fn depth_anything(&self) -> Result<SharedSession> {
+        self.coreml_session(&self.depth_anything, &DEPTH_ASSET, true)
+    }
+
+    pub fn face_landmarks(&self) -> Result<SharedSession> {
+        self.session(&self.face_landmarks, FACE_LANDMARKS_FILENAME, false)
+    }
+
+    pub fn face_segmenter(&self) -> Result<SharedSession> {
+        self.session(&self.face_segmenter, FACE_SEGMENTER_FILENAME, false)
+    }
+
+    pub fn esam3_face_prompt(&self) -> Result<Arc<Esam3Prompt>> {
+        self.stored_prompt(&self.esam3_face_prompt, ESAM3_FACE_PROMPT_FILENAME)
+    }
+
+    fn stored_prompt(
+        &self,
+        slot: &Mutex<Option<Arc<Esam3Prompt>>>,
+        filename: &str,
+    ) -> Result<Arc<Esam3Prompt>> {
+        let mut slot = slot.lock().unwrap();
+        if let Some(prompt) = slot.as_ref() {
+            return Ok(Arc::clone(prompt));
+        }
+        let bytes = fs::read(self.models_dir.join(filename))?;
+        let values: Vec<f32> = bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&chunk| f32::from_le_bytes(chunk))
+            .collect();
+        let feature_len = ESAM3_PROMPT_TOKENS * ESAM3_EMBED_DIM;
+        if values.len() != feature_len + ESAM3_PROMPT_TOKENS {
+            return Err(anyhow::anyhow!("Invalid prompt embedding {}", filename));
+        }
+        let prompt = Arc::new(Esam3Prompt {
+            features: Array::from_shape_vec(
+                IxDyn(&[ESAM3_PROMPT_TOKENS, 1, ESAM3_EMBED_DIM]),
+                values[..feature_len].to_vec(),
+            )?,
+            padding: Array::from_shape_vec(
+                IxDyn(&[1, ESAM3_PROMPT_TOKENS]),
+                values[feature_len..].to_vec(),
+            )?,
+        });
+        *slot = Some(Arc::clone(&prompt));
+        Ok(prompt)
+    }
+
+    pub fn esam3_text_prompt(&self, text: &str) -> Result<Esam3Prompt> {
+        let tokenizer = {
+            let mut slot = self.clip_tokenizer.lock().unwrap();
+            match slot.as_ref() {
+                Some(tokenizer) => Arc::clone(tokenizer),
+                None => {
+                    let tokenizer = Arc::new(
+                        Tokenizer::from_file(self.models_dir.join(CLIP_TOKENIZER_FILENAME))
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                    );
+                    *slot = Some(Arc::clone(&tokenizer));
+                    tokenizer
+                }
+            }
+        };
+        let encoding = tokenizer
+            .encode(text.trim(), true)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let ids = encoding.get_ids();
+        let mut tokens = Array::<i64, _>::zeros((1, ESAM3_PROMPT_TOKENS));
+        let kept = ids.len().min(ESAM3_PROMPT_TOKENS);
+        for (i, &id) in ids[..kept].iter().enumerate() {
+            tokens[[0, i]] = id as i64;
+        }
+        if let Some(&end) = ids.last()
+            && ids.len() > ESAM3_PROMPT_TOKENS
+        {
+            tokens[[0, ESAM3_PROMPT_TOKENS - 1]] = end as i64;
+        }
+
+        let session = self.session(&self.esam3_text_encoder, ESAM3_TEXT_ENCODER_FILENAME, false)?;
+        let mut session = session.lock().unwrap();
+        let outputs = session.run(ort::inputs!["tokens" => Tensor::from_array(tokens)?])?;
+        Ok(Esam3Prompt {
+            features: outputs["language_features"]
+                .try_extract_array::<f32>()?
+                .to_owned(),
+            padding: outputs["language_padding"]
+                .try_extract_array::<f32>()?
+                .to_owned(),
+        })
     }
 }
 
-fn one_shot_session(model_path: &Path) -> Result<Session> {
-    Ok(Session::builder()?
-        .with_execution_providers([ort::execution_providers::CPUExecutionProvider::default()
-            .with_arena_allocator(false)
-            .build()])?
-        .with_memory_pattern(false)?
-        .commit_from_file(model_path)?)
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SessionKind {
+    OneShot,
+    Persistent,
+}
+
+#[cfg(target_os = "windows")]
+fn high_performance_dml_device_id() -> Option<i32> {
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+        IDXGIAdapter1, IDXGIFactory6,
+    };
+
+    unsafe {
+        let factory: IDXGIFactory6 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0)).ok()?;
+        let preferred: IDXGIAdapter1 = factory
+            .EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE)
+            .ok()?;
+        let luid = preferred.GetDesc1().ok()?.AdapterLuid;
+        (0..)
+            .map_while(|i| factory.EnumAdapters1(i).ok())
+            .position(|adapter| {
+                adapter
+                    .GetDesc1()
+                    .is_ok_and(|desc| desc.AdapterLuid == luid)
+            })
+            .map(|index| index as i32)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn gpu_execution_provider() -> Option<ExecutionProviderDispatch> {
+    Some(
+        ort::execution_providers::DirectMLExecutionProvider::default()
+            .with_device_id(high_performance_dml_device_id().unwrap_or(0))
+            .build()
+            .error_on_failure(),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn gpu_execution_provider() -> Option<ExecutionProviderDispatch> {
+    use ort::execution_providers::coreml::{CoreMLComputeUnits, CoreMLModelFormat};
+
+    Some(
+        ort::execution_providers::CoreMLExecutionProvider::default()
+            .with_model_format(CoreMLModelFormat::MLProgram)
+            .with_compute_units(CoreMLComputeUnits::All)
+            .build()
+            .error_on_failure(),
+    )
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn gpu_execution_provider() -> Option<ExecutionProviderDispatch> {
+    None
+}
+
+fn gpu_allowed_on_platform() -> bool {
+    !cfg!(target_os = "macos")
+}
+
+type GpuModelPatch = fn() -> ort::Result<(Model, Vec<Output>)>;
+
+fn i64_initializer(values: &[i64]) -> ort::Result<Tensor<i64>> {
+    let mut tensor = Tensor::<i64>::new(&Allocator::default(), [values.len()])?;
+    tensor.extract_tensor_mut().1.copy_from_slice(values);
+    Ok(tensor)
+}
+
+fn denoise_crop_as_slice() -> ort::Result<(Model, Vec<Output>)> {
+    let output_type = ValueType::Tensor {
+        ty: TensorElementType::Float32,
+        shape: Shape::new([1, 3, -1, -1]),
+        dimension_symbols: SymbolicDimensions::empty(4),
+    };
+
+    let mut graph = Graph::new()?;
+    graph.add_initializer("crop_starts", i64_initializer(&[2, 2])?, false)?;
+    graph.add_initializer("crop_ends", i64_initializer(&[-2, -2])?, false)?;
+    graph.add_initializer("crop_axes", i64_initializer(&[2, 3])?, false)?;
+    graph.add_node(Node::new(
+        "Slice",
+        ONNX_DOMAIN,
+        "crop_slice",
+        ["conv2d_9", "crop_starts", "crop_ends", "crop_axes"],
+        ["denoised"],
+        [],
+    )?)?;
+    graph.set_outputs([Outlet::new("denoised", &output_type)?])?;
+
+    let mut model = Model::new([Opset::new(ONNX_DOMAIN, 18)?])?;
+    model.add_graph(graph)?;
+    Ok((
+        model,
+        vec![Output {
+            name: "denoised".to_string(),
+            output_type,
+        }],
+    ))
+}
+
+fn create_session(
+    model_path: &Path,
+    kind: SessionKind,
+    gpu_provider: Option<ExecutionProviderDispatch>,
+    gpu_patch: Option<GpuModelPatch>,
+) -> Result<Session> {
+    let use_gpu = gpu_provider.is_some();
+    let cpu_provider = CPUExecutionProvider::default()
+        .with_arena_allocator(kind == SessionKind::Persistent)
+        .build();
+    let providers: Vec<_> = gpu_provider.into_iter().chain([cpu_provider]).collect();
+
+    let mut builder = Session::builder()?;
+    if use_gpu || kind == SessionKind::OneShot {
+        builder = builder.with_memory_pattern(false)?;
+    }
+    if use_gpu && kind == SessionKind::OneShot {
+        builder = builder.with_config_entry("ep.dml.disable_memory_arena", "1")?;
+    }
+    let builder = builder.with_execution_providers(providers)?;
+    match gpu_patch {
+        Some(patch) => {
+            let (model, outputs) = patch()?;
+            let mut session = builder.edit_from_file(model_path)?;
+            session.apply_model(&model)?;
+            let mut session = session.into_session()?;
+            session.outputs = outputs;
+            Ok(session)
+        }
+        None => Ok(builder.commit_from_file(model_path)?),
+    }
+}
+
+fn build_session(
+    model_path: &Path,
+    kind: SessionKind,
+    use_gpu: bool,
+    gpu_patch: Option<GpuModelPatch>,
+) -> Result<Session> {
+    if use_gpu
+        && GPU_STATUS.load(Ordering::Acquire) < GPU_FAILED
+        && let Some(gpu_provider) = gpu_execution_provider()
+    {
+        match create_session(model_path, kind, Some(gpu_provider), gpu_patch) {
+            Ok(session) => {
+                let _ = GPU_STATUS.compare_exchange(
+                    GPU_IDLE,
+                    GPU_ACTIVE,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+                return Ok(session);
+            }
+            Err(e) => log::warn!(
+                "GPU acceleration unavailable for {}, falling back to CPU: {}",
+                model_path.display(),
+                e
+            ),
+        }
+    }
+    create_session(model_path, kind, None, None)
+}
+
+pub fn gpu_acceleration_enabled(app_handle: &tauri::AppHandle) -> bool {
+    GPU_STATUS.load(Ordering::Acquire) < GPU_FAILED
+        && crate::app_settings::load_settings(app_handle.clone())
+            .map(|settings| settings.ai_gpu_acceleration)
+            .unwrap_or(true)
+}
+
+pub fn gpu_inference<T>(result: ort::Result<T>) -> Result<T> {
+    result.map_err(|e| {
+        if GPU_STATUS
+            .compare_exchange(GPU_ACTIVE, GPU_FAILED, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            log::warn!(
+                "GPU inference failed, using the CPU for AI models from now on: {}",
+                e
+            );
+        }
+        e.into()
+    })
+}
+
+pub fn reset_ai_sessions(ai_state_mutex: &Mutex<Option<AiState>>) {
+    if let Some(ai_state) = ai_state_mutex.lock().unwrap().as_mut() {
+        ai_state.release_sessions();
+    }
+    GPU_STATUS.store(GPU_IDLE, Ordering::Release);
+}
+
+/// Models that have been replaced, as the file names they were saved under and the SHA-256 their
+/// CoreML cache is keyed by.
+const SUPERSEDED_MODELS: &[(&[&str], &str)] = &[
+    // SAM 1 (ViT-B), replaced by SAM 2.1
+    (
+        &["sam_vit_b_01ec64_encoder.onnx"],
+        "16ab73d9c824886f0de2938c19df22fb9ec3deebfd0de58e65177e479213d7d1",
+    ),
+    (
+        &["sam_vit_b_01ec64_decoder.onnx"],
+        "85d0d672cf5b7fe763edcde429e5533e62f674af4b15c7d688b7673b0ef00bf7",
+    ),
+    // U²-Net foreground, replaced by BiRefNet
+    (
+        &["u2net.onnx"],
+        "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
+    ),
+    // U²-Net sky, replaced by SkyWater-Seg
+    (
+        &["skyseg_u2net.onnx", "skyseg-u2net.onnx"],
+        "ab9c34c64c3d821220a2886a4a06da4642ffa14d5b30e8d5339056a089aa1d39",
+    ),
+    // Depth Anything V2 Small, replaced by Depth Anything 3 Mono-Large
+    (
+        &["depth_anything_v2_vits.onnx"],
+        "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b526304f2562be",
+    ),
+    // MoGe-2 ViT-S, replaced by MoGe-3 ViT-L
+    (
+        &["moge-2-vits-normal-onnx.onnx"],
+        "24eacb5dc7a2c54c7bc98f7de085ffbed79ad006ea5b664c2c2cdc02ff3a52f0",
+    ),
+];
+
+/// Compiled CoreML models live in this folder of the models folder, one subfolder per model hash.
+/// It's renamed whenever the way models are handed to CoreML changes, so every model is compiled
+/// afresh; the folders in `OLD_COREML_CACHES` are deleted at startup.
+const COREML_CACHE: &str = "coreml_cache_v2";
+
+/// `coreml_cache` holds models compiled with MatMul + Add fused, at up to 4.8 GB each.
+const OLD_COREML_CACHES: &[&str] = &["coreml_cache"];
+
+/// Frees the disk space taken by models in `SUPERSEDED_MODELS` and by old CoreML caches. Nothing
+/// else is touched.
+pub fn remove_superseded_models(app_handle: &tauri::AppHandle) {
+    if let Ok(data_dir) = app_handle.path().app_data_dir() {
+        remove_superseded_models_in(&data_dir.join("models"));
+    }
+}
+
+fn remove_superseded_models_in(models_dir: &Path) {
+    let superseded = SUPERSEDED_MODELS.iter().flat_map(|(filenames, sha256)| {
+        filenames
+            .iter()
+            .map(|filename| models_dir.join(filename))
+            .chain([models_dir.join(COREML_CACHE).join(&sha256[..16])])
+    });
+    let old_caches = OLD_COREML_CACHES.iter().map(|dir| models_dir.join(dir));
+    for path in superseded.chain(old_caches) {
+        let removed = match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
+            Ok(_) => fs::remove_file(&path),
+            Err(_) => continue,
+        };
+        match removed {
+            Ok(()) => log::info!("Removed superseded {}", path.display()),
+            Err(e) => log::warn!("Failed to remove {}: {}", path.display(), e),
+        }
+    }
+}
+
+/// Creates a session for one of this fork's models. On macOS, `coreml_units` hands the model to
+/// CoreML (GPU or Neural Engine), falling back to CPU if CoreML can't compile it; `None` keeps it
+/// on CPU, as do other platforms.
+///
+/// Only enable CoreML for models verified to run correctly and faster with it. Models that are
+/// int8-quantized, split into many CoreML/CPU partitions, or fail inside CoreML at run time
+/// (which the load-time fallback can't catch) must stay on CPU.
+/// Set `RAPIDRAW_AI_CPU_ONLY=1` to force CPU for every model.
+fn build_coreml_or_cpu_session(
+    model_path: &Path,
+    model_sha256: &str,
+    coreml_units: Option<CoreMLComputeUnits>,
+    kind: SessionKind,
+) -> Result<Session> {
+    #[cfg(target_os = "macos")]
+    if let Some(units) = coreml_units
+        && std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_none()
+    {
+        match build_coreml_session(model_path, model_sha256, units) {
+            Ok(session) => {
+                log::info!("Loaded {} with CoreML ({:?})", model_path.display(), units);
+                return Ok(session);
+            }
+            Err(e) => log::warn!(
+                "CoreML failed for {}, falling back to CPU: {}",
+                model_path.display(),
+                e
+            ),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (model_sha256, coreml_units);
+
+    create_session(model_path, kind, None, None)
+}
+
+/// Keyed by the model's hash so updated weights never reuse a stale compiled model.
+#[cfg(target_os = "macos")]
+fn coreml_cache_dir(model_path: &Path, model_sha256: &str) -> PathBuf {
+    model_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(COREML_CACHE)
+        .join(&model_sha256[..16])
+}
+
+/// A failed build deletes the cache, so the next attempt compiles from scratch instead of
+/// reusing a broken one.
+#[cfg(target_os = "macos")]
+fn build_coreml_session(
+    model_path: &Path,
+    model_sha256: &str,
+    units: CoreMLComputeUnits,
+) -> Result<Session> {
+    use ort::execution_providers::coreml::{CoreMLExecutionProvider, CoreMLModelFormat};
+
+    let cache_dir = coreml_cache_dir(model_path, model_sha256);
+    fs::create_dir_all(&cache_dir)?;
+
+    let coreml = CoreMLExecutionProvider::default()
+        .with_model_format(CoreMLModelFormat::MLProgram)
+        .with_compute_units(units)
+        .with_model_cache_dir(cache_dir.display())
+        .build()
+        .error_on_failure();
+
+    // ORT fuses MatMul + Add into Gemm, and its CoreML EP passes a Gemm weight to CoreML by
+    // transposing it and writing it into the model as text instead of into weight.bin. For a
+    // ViT that's gigabytes of cache and minutes of compiling. Unfused, CoreML gets matmul + add
+    // with the weights in weight.bin, and the output and speed are identical. (The value is a
+    // `;`-separated list.)
+    let session = Session::builder()?
+        .with_config_entry(
+            "optimization.disable_specified_optimizers",
+            "MatMulAddFusion",
+        )?
+        .with_execution_providers([coreml])?
+        .commit_from_file(model_path);
+    match session {
+        Ok(session) => {
+            remove_coreml_sources(&cache_dir);
+            Ok(session)
+        }
+        Err(e) => {
+            let _ = fs::remove_dir_all(&cache_dir);
+            Err(e.into())
+        }
+    }
+}
+
+/// ORT keeps the CoreML model it wrote (`Manifest.json`, `Data`) next to the compiled copy it
+/// runs (`compiled_model.mlmodelc`), and once the compiled copy exists it never reads the source
+/// again, so deleting it halves the cache. `model` itself must stay: it's how ORT tells the
+/// model is cached.
+#[cfg(target_os = "macos")]
+fn remove_coreml_sources(cache_dir: &Path) {
+    let partitions = fs::read_dir(cache_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|model| fs::read_dir(model.path()).ok())
+        .flatten()
+        .flatten();
+    for partition in partitions {
+        let package = partition.path().join("model");
+        if !package.join("compiled_model.mlmodelc").is_dir() {
+            continue;
+        }
+        for source in ["Manifest.json", "Data", "tmp"] {
+            let path = package.join(source);
+            let _ = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
+                Ok(_) => fs::remove_file(&path),
+                Err(_) => continue,
+            };
+        }
+    }
+}
+
+/// Like `build_coreml_or_cpu_session`, for big models CoreML takes several seconds to prepare on first load
+/// (and again whenever macOS drops its cache). Returns a CPU session at once and swaps in the
+/// CoreML one when it's ready, so nothing waits on the compile.
+fn build_session_upgrading(
+    model_path: &Path,
+    model_sha256: &str,
+    coreml_units: Option<CoreMLComputeUnits>,
+) -> Result<Arc<Mutex<Session>>> {
+    let session = Arc::new(Mutex::new(create_session(
+        model_path,
+        SessionKind::Persistent,
+        None,
+        None,
+    )?));
+
+    #[cfg(target_os = "macos")]
+    if let Some(coreml_units) = coreml_units
+        && std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_none()
+    {
+        let target = Arc::downgrade(&session);
+        let path = model_path.to_path_buf();
+        let sha = model_sha256.to_string();
+        std::thread::spawn(
+            move || match build_coreml_session(&path, &sha, coreml_units) {
+                Ok(coreml) => {
+                    if let Some(target) = target.upgrade() {
+                        *target.lock().unwrap() = coreml;
+                        log::info!("Switched {} to CoreML ({:?})", path.display(), coreml_units);
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "CoreML failed for {}, staying on CPU: {}",
+                        path.display(),
+                        e
+                    );
+                }
+            },
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (model_sha256, coreml_units);
+
+    Ok(session)
+}
+
+/// The CoreML compute units this fork's models run with on macOS, unless GPU acceleration is
+/// turned off in the settings.
+fn coreml_units(app_handle: &tauri::AppHandle) -> Option<CoreMLComputeUnits> {
+    gpu_acceleration_enabled(app_handle).then_some(CoreMLComputeUnits::CPUAndGPU)
 }
 
 pub struct ClipModels {
@@ -266,21 +1090,55 @@ pub struct CachedDepthMap {
     pub original_size: (u32, u32),
 }
 
+#[derive(Default)]
 pub struct AiState {
     pub models: Option<Arc<AiModels>>,
     pub denoise_model: Option<Arc<Mutex<Session>>>,
     pub raw_denoise_model: Option<Arc<Mutex<Session>>>,
     pub raw_bayer_denoise_model: Option<Arc<Mutex<Session>>>,
     pub upscale_model: Option<Arc<Mutex<Session>>>,
-    pub foreground_model: Option<Arc<Mutex<Session>>>,
-    pub sky_model: Option<Arc<Mutex<Session>>>,
     pub clip_models: Option<Arc<ClipModels>>,
     pub search_models: Option<Arc<SearchModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
     pub normal_model: Option<Arc<NormalModel>>,
-    pub depth_model: Option<Arc<Mutex<Session>>>,
     pub embeddings: Option<ImageEmbeddings>,
+    pub esam3_features: Option<Arc<Esam3Features>>,
+    pub face_analysis: Option<Arc<FaceAnalysis>>,
     pub depth_map: Option<CachedDepthMap>,
+}
+
+impl AiState {
+    pub fn release_sessions(&mut self) {
+        self.models = None;
+        self.denoise_model = None;
+        self.raw_denoise_model = None;
+        self.raw_bayer_denoise_model = None;
+        self.upscale_model = None;
+        self.clip_models = None;
+        self.search_models = None;
+        self.lama_model = None;
+        self.normal_model = None;
+    }
+}
+
+fn cached_ai_state<T>(
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    get: impl Fn(&AiState) -> Option<T>,
+) -> Option<T> {
+    let mut ai_state = ai_state_mutex.lock().unwrap();
+    if GPU_STATUS
+        .compare_exchange(
+            GPU_FAILED,
+            GPU_DISABLED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_ok()
+        && let Some(ai_state) = ai_state.as_mut()
+    {
+        ai_state.release_sessions();
+    }
+    ai_state.as_ref().and_then(get)
 }
 
 fn edt_1d(f: &mut [f32], v: &mut [usize], z: &mut [f32], d: &mut [f32]) {
@@ -498,240 +1356,119 @@ pub fn fast_guided_filter(
     GrayImage::from_raw(hr_w, hr_h, final_mask_raw).unwrap()
 }
 
+fn bilinear_sample(i: usize, scale: f32, n: usize) -> (usize, usize, f32) {
+    let f = ((i as f32 + 0.5) * scale - 0.5).max(0.0);
+    let i0 = (f.floor() as usize).min(n - 1);
+    let i1 = (i0 + 1).min(n - 1);
+    (i0, i1, (f - i0 as f32).clamp(0.0, 1.0))
+}
+
+pub fn fast_color_guided_filter(
+    guide_hr: &RgbImage,
+    mask_lr: &GrayImage,
+    r: usize,
+    eps: f32,
+) -> GrayImage {
+    let (hr_w, hr_h) = guide_hr.dimensions();
+    let (lr_w, lr_h) = mask_lr.dimensions();
+    let (w, h) = (lr_w as usize, lr_h as usize);
+    let area = w * h;
+
+    let guide_lr = imageops::resize(guide_hr, lr_w, lr_h, FilterType::Triangle);
+    let guide: [Vec<f32>; 3] =
+        std::array::from_fn(|c| guide_lr.pixels().map(|p| p[c] as f32 / 255.0).collect());
+    drop(guide_lr);
+    let p: Vec<f32> = mask_lr.as_raw().iter().map(|&v| v as f32 / 255.0).collect();
+
+    let mut temp1 = vec![0.0; area];
+    let mut temp2 = vec![0.0; area];
+    let mut box_filter = |src: &[f32]| {
+        let mut mean = vec![0.0; area];
+        box_filter_opt(src, &mut mean, &mut temp1, &mut temp2, w, h, r);
+        mean
+    };
+    let product = |a: &[f32], b: &[f32]| -> Vec<f32> {
+        a.par_iter().zip(b.par_iter()).map(|(x, y)| x * y).collect()
+    };
+
+    let mean_i = guide.each_ref().map(|c| box_filter(c));
+    let mean_p = box_filter(&p);
+    let mean_ip: [Vec<f32>; 3] = std::array::from_fn(|c| box_filter(&product(&guide[c], &p)));
+    let mean_ii = [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)]
+        .map(|(i, j)| box_filter(&product(&guide[i], &guide[j])));
+    drop((guide, p));
+
+    let coefficients: Vec<[f32; 4]> = (0..area)
+        .into_par_iter()
+        .map(|k| {
+            let m = [mean_i[0][k], mean_i[1][k], mean_i[2][k]];
+            let cov = [0, 1, 2].map(|c| mean_ip[c][k] - m[c] * mean_p[k]);
+            let s00 = mean_ii[0][k] - m[0] * m[0] + eps;
+            let s01 = mean_ii[1][k] - m[0] * m[1];
+            let s02 = mean_ii[2][k] - m[0] * m[2];
+            let s11 = mean_ii[3][k] - m[1] * m[1] + eps;
+            let s12 = mean_ii[4][k] - m[1] * m[2];
+            let s22 = mean_ii[5][k] - m[2] * m[2] + eps;
+            let c00 = s11 * s22 - s12 * s12;
+            let c01 = s02 * s12 - s01 * s22;
+            let c02 = s01 * s12 - s02 * s11;
+            let c11 = s00 * s22 - s02 * s02;
+            let c12 = s01 * s02 - s00 * s12;
+            let c22 = s00 * s11 - s01 * s01;
+            let det = s00 * c00 + s01 * c01 + s02 * c02;
+            let a0 = (c00 * cov[0] + c01 * cov[1] + c02 * cov[2]) / det;
+            let a1 = (c01 * cov[0] + c11 * cov[1] + c12 * cov[2]) / det;
+            let a2 = (c02 * cov[0] + c12 * cov[1] + c22 * cov[2]) / det;
+            [a0, a1, a2, mean_p[k] - a0 * m[0] - a1 * m[1] - a2 * m[2]]
+        })
+        .collect();
+    drop((mean_i, mean_p, mean_ip, mean_ii));
+
+    let mean_coefficients: [Vec<f32>; 4] = std::array::from_fn(|i| {
+        box_filter(&coefficients.iter().map(|c| c[i]).collect::<Vec<f32>>())
+    });
+    drop(coefficients);
+
+    let (hr_w, hr_h) = (hr_w as usize, hr_h as usize);
+    let x_samples: Vec<(usize, usize, f32)> = (0..hr_w)
+        .map(|x| bilinear_sample(x, w as f32 / hr_w as f32, w))
+        .collect();
+    let mut final_mask_raw = vec![0u8; hr_w * hr_h];
+
+    final_mask_raw
+        .par_chunks_exact_mut(hr_w)
+        .zip(guide_hr.as_raw().par_chunks_exact(hr_w * 3))
+        .enumerate()
+        .for_each(|(y, (out_row, guide_row))| {
+            let (y0, y1, ty) = bilinear_sample(y, h as f32 / hr_h as f32, h);
+            for (x, (out, pixel)) in out_row
+                .iter_mut()
+                .zip(guide_row.as_chunks::<3>().0)
+                .enumerate()
+            {
+                let (x0, x1, tx) = x_samples[x];
+                let sample = |values: &[f32]| {
+                    let top = values[y0 * w + x0] * (1.0 - tx) + values[y0 * w + x1] * tx;
+                    let bottom = values[y1 * w + x0] * (1.0 - tx) + values[y1 * w + x1] * tx;
+                    top * (1.0 - ty) + bottom * ty
+                };
+                let q = (0..3)
+                    .map(|c| sample(&mean_coefficients[c]) * pixel[c] as f32 / 255.0)
+                    .sum::<f32>()
+                    + sample(&mean_coefficients[3]);
+                *out = (q.clamp(0.0, 1.0) * 255.0).round() as u8;
+            }
+        });
+
+    GrayImage::from_raw(hr_w as u32, hr_h as u32, final_mask_raw).unwrap()
+}
+
 fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     let models_dir = app_handle.path().app_data_dir()?.join("models");
     if !models_dir.exists() {
         fs::create_dir_all(&models_dir)?;
     }
     Ok(models_dir)
-}
-
-/// Models that have been replaced, as the file names they were saved under and the SHA-256 their
-/// CoreML cache is keyed by.
-const SUPERSEDED_MODELS: &[(&[&str], &str)] = &[
-    // SAM 1 (ViT-B), replaced by SAM 2.1
-    (
-        &["sam_vit_b_01ec64_encoder.onnx"],
-        "16ab73d9c824886f0de2938c19df22fb9ec3deebfd0de58e65177e479213d7d1",
-    ),
-    (
-        &["sam_vit_b_01ec64_decoder.onnx"],
-        "85d0d672cf5b7fe763edcde429e5533e62f674af4b15c7d688b7673b0ef00bf7",
-    ),
-    // U²-Net foreground, replaced by BiRefNet
-    (
-        &["u2net.onnx"],
-        "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
-    ),
-    // U²-Net sky, replaced by SkyWater-Seg
-    (
-        &["skyseg_u2net.onnx", "skyseg-u2net.onnx"],
-        "ab9c34c64c3d821220a2886a4a06da4642ffa14d5b30e8d5339056a089aa1d39",
-    ),
-    // Depth Anything V2 Small, replaced by Depth Anything 3 Mono-Large
-    (
-        &["depth_anything_v2_vits.onnx"],
-        "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b526304f2562be",
-    ),
-    // MoGe-2 ViT-S, replaced by MoGe-3 ViT-L
-    (
-        &["moge-2-vits-normal-onnx.onnx"],
-        "24eacb5dc7a2c54c7bc98f7de085ffbed79ad006ea5b664c2c2cdc02ff3a52f0",
-    ),
-];
-
-/// Compiled CoreML models live in this folder of the models folder, one subfolder per model hash.
-/// It's renamed whenever the way models are handed to CoreML changes, so every model is compiled
-/// afresh; the folders in `OLD_COREML_CACHES` are deleted at startup.
-const COREML_CACHE: &str = "coreml_cache_v2";
-/// `coreml_cache` holds models compiled with MatMul + Add fused, at up to 4.8 GB each.
-const OLD_COREML_CACHES: &[&str] = &["coreml_cache"];
-
-/// Frees the disk space taken by models in `SUPERSEDED_MODELS` and by old CoreML caches. Nothing
-/// else is touched.
-pub fn remove_superseded_models(app_handle: &tauri::AppHandle) {
-    if let Ok(data_dir) = app_handle.path().app_data_dir() {
-        remove_superseded_models_in(&data_dir.join("models"));
-    }
-}
-
-fn remove_superseded_models_in(models_dir: &Path) {
-    let superseded = SUPERSEDED_MODELS.iter().flat_map(|(filenames, sha256)| {
-        filenames
-            .iter()
-            .map(|filename| models_dir.join(filename))
-            .chain([models_dir.join(COREML_CACHE).join(&sha256[..16])])
-    });
-    let old_caches = OLD_COREML_CACHES.iter().map(|dir| models_dir.join(dir));
-    for path in superseded.chain(old_caches) {
-        let removed = match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
-            Ok(_) => fs::remove_file(&path),
-            Err(_) => continue,
-        };
-        match removed {
-            Ok(()) => log::info!("Removed superseded {}", path.display()),
-            Err(e) => log::warn!("Failed to remove {}: {}", path.display(), e),
-        }
-    }
-}
-
-/// Creates an ONNX Runtime session. On macOS, `coreml_units` hands the model to CoreML (GPU or
-/// Neural Engine), falling back to CPU if CoreML can't compile it; `None` keeps it on CPU.
-///
-/// Only enable CoreML for models verified to run correctly and faster with it. Models that are
-/// int8-quantized, split into many CoreML/CPU partitions, or fail inside CoreML at run time
-/// (which the load-time fallback can't catch) must stay on CPU.
-/// Set `RAPIDRAW_AI_CPU_ONLY=1` to force CPU for every model.
-fn build_session(
-    model_path: &Path,
-    model_sha256: &str,
-    coreml_units: Option<CoreMLComputeUnits>,
-) -> Result<Session> {
-    #[cfg(target_os = "macos")]
-    if let Some(units) = coreml_units
-        && std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_none()
-    {
-        match build_coreml_session(model_path, model_sha256, units) {
-            Ok(session) => {
-                log::info!("Loaded {} with CoreML ({:?})", model_path.display(), units);
-                return Ok(session);
-            }
-            Err(e) => log::warn!(
-                "CoreML failed for {}, falling back to CPU: {}",
-                model_path.display(),
-                e
-            ),
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = (model_sha256, coreml_units);
-
-    Ok(Session::builder()?.commit_from_file(model_path)?)
-}
-
-/// Keyed by the model's hash so updated weights never reuse a stale compiled model.
-#[cfg(target_os = "macos")]
-fn coreml_cache_dir(model_path: &Path, model_sha256: &str) -> PathBuf {
-    model_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(COREML_CACHE)
-        .join(&model_sha256[..16])
-}
-
-/// A failed build deletes the cache, so the next attempt compiles from scratch instead of
-/// reusing a broken one.
-#[cfg(target_os = "macos")]
-fn build_coreml_session(
-    model_path: &Path,
-    model_sha256: &str,
-    units: CoreMLComputeUnits,
-) -> Result<Session> {
-    use ort::execution_providers::coreml::{CoreMLExecutionProvider, CoreMLModelFormat};
-
-    let cache_dir = coreml_cache_dir(model_path, model_sha256);
-    fs::create_dir_all(&cache_dir)?;
-
-    let coreml = CoreMLExecutionProvider::default()
-        .with_model_format(CoreMLModelFormat::MLProgram)
-        .with_compute_units(units)
-        .with_model_cache_dir(cache_dir.display())
-        .build()
-        .error_on_failure();
-
-    // ORT fuses MatMul + Add into Gemm, and its CoreML EP passes a Gemm weight to CoreML by
-    // transposing it and writing it into the model as text instead of into weight.bin. For a
-    // ViT that's gigabytes of cache and minutes of compiling. Unfused, CoreML gets matmul + add
-    // with the weights in weight.bin, and the output and speed are identical. (The value is a
-    // `;`-separated list.)
-    let session = Session::builder()?
-        .with_config_entry(
-            "optimization.disable_specified_optimizers",
-            "MatMulAddFusion",
-        )?
-        .with_execution_providers([coreml])?
-        .commit_from_file(model_path);
-    match session {
-        Ok(session) => {
-            remove_coreml_sources(&cache_dir);
-            Ok(session)
-        }
-        Err(e) => {
-            let _ = fs::remove_dir_all(&cache_dir);
-            Err(e.into())
-        }
-    }
-}
-
-/// ORT keeps the CoreML model it wrote (`Manifest.json`, `Data`) next to the compiled copy it
-/// runs (`compiled_model.mlmodelc`), and once the compiled copy exists it never reads the source
-/// again, so deleting it halves the cache. `model` itself must stay: it's how ORT tells the
-/// model is cached.
-#[cfg(target_os = "macos")]
-fn remove_coreml_sources(cache_dir: &Path) {
-    let partitions = fs::read_dir(cache_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|model| fs::read_dir(model.path()).ok())
-        .flatten()
-        .flatten();
-    for partition in partitions {
-        let package = partition.path().join("model");
-        if !package.join("compiled_model.mlmodelc").is_dir() {
-            continue;
-        }
-        for source in ["Manifest.json", "Data", "tmp"] {
-            let path = package.join(source);
-            let _ = match fs::symlink_metadata(&path) {
-                Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
-                Ok(_) => fs::remove_file(&path),
-                Err(_) => continue,
-            };
-        }
-    }
-}
-
-/// Like `build_session`, for big models CoreML takes several seconds to prepare on first load
-/// (and again whenever macOS drops its cache). Returns a CPU session at once and swaps in the
-/// CoreML one when it's ready, so nothing waits on the compile.
-fn build_session_upgrading(
-    model_path: &Path,
-    model_sha256: &str,
-    coreml_units: CoreMLComputeUnits,
-) -> Result<Arc<Mutex<Session>>> {
-    let session = Arc::new(Mutex::new(
-        Session::builder()?.commit_from_file(model_path)?,
-    ));
-
-    #[cfg(target_os = "macos")]
-    if std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_none() {
-        let target = Arc::downgrade(&session);
-        let path = model_path.to_path_buf();
-        let sha = model_sha256.to_string();
-        std::thread::spawn(
-            move || match build_coreml_session(&path, &sha, coreml_units) {
-                Ok(coreml) => {
-                    if let Some(target) = target.upgrade() {
-                        *target.lock().unwrap() = coreml;
-                        log::info!("Switched {} to CoreML ({:?})", path.display(), coreml_units);
-                    }
-                }
-                Err(e) => {
-                    log::warn!(
-                        "CoreML failed for {}, staying on CPU: {}",
-                        path.display(),
-                        e
-                    );
-                }
-            },
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = (model_sha256, coreml_units);
-
-    Ok(session)
 }
 
 fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
@@ -774,9 +1511,25 @@ fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-async fn download_model(url: &str, dest: &Path) -> Result<()> {
-    let response = reqwest::get(url).await?.error_for_status()?;
-    let bytes = response.bytes().await?;
+async fn download_model(
+    app_handle: &tauri::AppHandle,
+    asset: &ModelAsset,
+    dest: &Path,
+) -> Result<()> {
+    let mut response = reqwest::get(asset.url).await?.error_for_status()?;
+    let total = response.content_length().unwrap_or(0);
+    let mut bytes = Vec::with_capacity(total as usize);
+    let mut last_progress = Instant::now();
+    while let Some(chunk) = response.chunk().await? {
+        bytes.extend_from_slice(&chunk);
+        if total > 0 && last_progress.elapsed() >= Duration::from_millis(200) {
+            last_progress = Instant::now();
+            let _ = app_handle.emit(
+                "ai-model-download-progress",
+                serde_json::json!({ "name": asset.name, "current": bytes.len(), "total": total }),
+            );
+        }
+    }
     persist_downloaded_asset(dest, &bytes)
 }
 
@@ -802,30 +1555,41 @@ fn verify_sha256(path: &Path, expected_hash: &str) -> Result<bool> {
 async fn download_and_verify_model(
     app_handle: &tauri::AppHandle,
     models_dir: &Path,
-    filename: &str,
-    url: &str,
-    expected_hash: &str,
-    model_name: &str,
+    asset: &ModelAsset,
 ) -> Result<()> {
-    let dest_path = models_dir.join(filename);
-    let is_valid = verify_sha256(&dest_path, expected_hash)?;
+    let dest_path = models_dir.join(asset.filename);
+    let is_valid = match asset.sha256 {
+        Some(expected_hash) => verify_sha256(&dest_path, expected_hash)?,
+        None => dest_path.exists(),
+    };
 
     if !is_valid {
         if dest_path.exists() {
-            println!("Model {} has incorrect hash. Re-downloading.", model_name);
+            println!("Model {} has incorrect hash. Re-downloading.", asset.name);
             fs::remove_file(&dest_path)?;
         }
-        let _ = app_handle.emit("ai-model-download-start", model_name);
-        let download_result = download_model(url, &dest_path).await;
-        let _ = app_handle.emit("ai-model-download-finish", model_name);
-        download_result?;
-
-        if !verify_sha256(&dest_path, expected_hash)? {
-            return Err(anyhow::anyhow!(
-                "Failed to verify model {} after download. Hash mismatch.",
-                model_name
-            ));
+        let _ = app_handle.emit("ai-model-download-start", asset.name);
+        let download_result = async {
+            download_model(app_handle, asset, &dest_path).await?;
+            if let Some(expected_hash) = asset.sha256
+                && !verify_sha256(&dest_path, expected_hash)?
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to verify model {} after download. Hash mismatch.",
+                    asset.name
+                ));
+            }
+            Ok(())
         }
+        .await;
+        let _ = app_handle.emit(
+            "ai-model-download-finish",
+            serde_json::json!({
+                "name": asset.name,
+                "error": download_result.as_ref().err().map(|e| e.to_string()),
+            }),
+        );
+        download_result?;
     }
     Ok(())
 }
@@ -834,78 +1598,55 @@ pub async fn get_or_init_ai_models(
     app_handle: &tauri::AppHandle,
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
+    model: AiMaskModel,
 ) -> Result<Arc<AiModels>> {
-    if let Some(models) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.models.clone())
+    let is_downloaded = |models: &AiModels| models.downloaded.lock().unwrap().contains(&model);
+
+    if let Some(models) = cached_ai_state(ai_state_mutex, |state| state.models.clone())
+        && is_downloaded(&models)
     {
         return Ok(models);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(models) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.models.clone())
-    {
-        return Ok(models);
-    }
+    let models = match cached_ai_state(ai_state_mutex, |state| state.models.clone()) {
+        Some(models) => models,
+        None => {
+            let _ = ort::init().with_name("AI").commit();
+            crate::register_exit_handler();
 
-    let models_dir = get_models_dir(app_handle)?;
+            let models = Arc::new(AiModels {
+                models_dir: get_models_dir(app_handle)?,
+                use_gpu: gpu_acceleration_enabled(app_handle),
+                downloaded: Mutex::new(HashSet::new()),
+                sam_encoder: Mutex::new(None),
+                sam_decoder: Mutex::new(None),
+                birefnet: Mutex::new(None),
+                sky: Mutex::new(None),
+                esam3_image_encoder: Mutex::new(None),
+                esam3_decoder: Mutex::new(None),
+                esam3_text_encoder: Mutex::new(None),
+                esam3_face_prompt: Mutex::new(None),
+                clip_tokenizer: Mutex::new(None),
+                face_landmarks: Mutex::new(None),
+                face_segmenter: Mutex::new(None),
+                depth_anything: Mutex::new(None),
+            });
+            ai_state_mutex
+                .lock()
+                .unwrap()
+                .get_or_insert_with(AiState::default)
+                .models = Some(models.clone());
+            models
+        }
+    };
 
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        ENCODER_FILENAME,
-        ENCODER_URL,
-        ENCODER_SHA256,
-        "SAM Encoder",
-    )
-    .await?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        DECODER_FILENAME,
-        DECODER_URL,
-        DECODER_SHA256,
-        "SAM Decoder",
-    )
-    .await?;
-
-    let _ = ort::init().with_name("AI").commit();
-
-    crate::register_exit_handler();
-
-    let models = Arc::new(AiModels {
-        models_dir,
-        sam_encoder: Mutex::new(None),
-        sam_decoder: Mutex::new(None),
-    });
-
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.models = Some(models.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: Some(models.clone()),
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
+    if !is_downloaded(&models) {
+        for asset in model.assets() {
+            download_and_verify_model(app_handle, &models.models_dir, asset).await?;
+        }
+        models.downloaded.lock().unwrap().insert(model);
     }
 
     Ok(models)
@@ -916,69 +1657,50 @@ pub async fn get_or_init_denoise_model(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<Mutex<Session>>> {
-    if let Some(denoise_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.denoise_model.clone())
+    if let Some(denoise_model) =
+        cached_ai_state(ai_state_mutex, |state| state.denoise_model.clone())
     {
         return Ok(denoise_model);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(denoise_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.denoise_model.clone())
+    if let Some(denoise_model) =
+        cached_ai_state(ai_state_mutex, |state| state.denoise_model.clone())
     {
         return Ok(denoise_model);
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        DENOISE_FILENAME,
-        DENOISE_URL,
-        DENOISE_SHA256,
-        "NIND Denoise Model",
-    )
-    .await?;
+    download_and_verify_model(app_handle, &models_dir, &DENOISE_ASSET).await?;
 
     let _ = ort::init().with_name("AI-Denoise").commit();
     let model_path = models_dir.join(DENOISE_FILENAME);
-    let session = build_session(
-        &model_path,
-        DENOISE_SHA256,
-        Some(CoreMLComputeUnits::CPUAndGPU),
-    )?;
+    // On macOS it runs with CoreML, compiled and cached as this fork's models are.
+    let session = if cfg!(target_os = "macos") {
+        build_coreml_or_cpu_session(
+            &model_path,
+            DENOISE_SHA256,
+            coreml_units(app_handle),
+            SessionKind::Persistent,
+        )?
+    } else {
+        build_session(
+            &model_path,
+            SessionKind::Persistent,
+            gpu_acceleration_enabled(app_handle),
+            Some(denoise_crop_as_slice),
+        )?
+    };
     let denoise_model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.denoise_model = Some(denoise_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: Some(denoise_model.clone()),
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
+    ai_state_mutex
+        .lock()
+        .unwrap()
+        .get_or_insert_with(AiState::default)
+        .denoise_model = Some(denoise_model.clone());
 
     Ok(denoise_model)
 }
@@ -988,71 +1710,37 @@ pub async fn get_or_init_raw_denoise_model(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<Mutex<Session>>> {
-    if let Some(raw_denoise_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.raw_denoise_model.clone())
-    {
-        return Ok(raw_denoise_model);
+    if let Some(model) = cached_ai_state(ai_state_mutex, |state| state.raw_denoise_model.clone()) {
+        return Ok(model);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(raw_denoise_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.raw_denoise_model.clone())
-    {
-        return Ok(raw_denoise_model);
+    if let Some(model) = cached_ai_state(ai_state_mutex, |state| state.raw_denoise_model.clone()) {
+        return Ok(model);
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        RAWNIND_FILENAME,
-        RAWNIND_URL,
-        RAWNIND_SHA256,
-        "RawNIND Denoise Model",
-    )
-    .await?;
+    download_and_verify_model(app_handle, &models_dir, &RAWNIND_ASSET).await?;
 
     let _ = ort::init().with_name("AI-Denoise").commit();
-    let model_path = models_dir.join(RAWNIND_FILENAME);
-    let session = build_session(
-        &model_path,
+    let session = build_coreml_or_cpu_session(
+        &models_dir.join(RAWNIND_FILENAME),
         RAWNIND_SHA256,
-        Some(CoreMLComputeUnits::CPUAndGPU),
+        coreml_units(app_handle),
+        SessionKind::Persistent,
     )?;
-    let raw_denoise_model = Arc::new(Mutex::new(session));
+    let model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.raw_denoise_model = Some(raw_denoise_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: Some(raw_denoise_model.clone()),
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
+    ai_state_mutex
+        .lock()
+        .unwrap()
+        .get_or_insert_with(AiState::default)
+        .raw_denoise_model = Some(model.clone());
 
-    Ok(raw_denoise_model)
+    Ok(model)
 }
 
 pub async fn get_or_init_raw_bayer_denoise_model(
@@ -1060,71 +1748,39 @@ pub async fn get_or_init_raw_bayer_denoise_model(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<Mutex<Session>>> {
-    if let Some(model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.raw_bayer_denoise_model.clone())
-    {
+    if let Some(model) = cached_ai_state(ai_state_mutex, |state| {
+        state.raw_bayer_denoise_model.clone()
+    }) {
         return Ok(model);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.raw_bayer_denoise_model.clone())
-    {
+    if let Some(model) = cached_ai_state(ai_state_mutex, |state| {
+        state.raw_bayer_denoise_model.clone()
+    }) {
         return Ok(model);
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        RAWNIND_BAYER_FILENAME,
-        RAWNIND_BAYER_URL,
-        RAWNIND_BAYER_SHA256,
-        "RawNIND Bayer Denoise Model",
-    )
-    .await?;
+    download_and_verify_model(app_handle, &models_dir, &RAWNIND_BAYER_ASSET).await?;
 
     let _ = ort::init().with_name("AI-Denoise").commit();
-    let model_path = models_dir.join(RAWNIND_BAYER_FILENAME);
-    // darktable keeps this model on CPU because its FP16 GPU path overflows. CoreML's ML Program
-    // computes in FP32 here, matching the CPU output, and is about 14x faster.
-    let session = build_session(
-        &model_path,
+    let session = build_coreml_or_cpu_session(
+        &models_dir.join(RAWNIND_BAYER_FILENAME),
         RAWNIND_BAYER_SHA256,
-        Some(CoreMLComputeUnits::CPUAndGPU),
+        coreml_units(app_handle),
+        SessionKind::Persistent,
     )?;
     let model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.raw_bayer_denoise_model = Some(model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: Some(model.clone()),
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
+    ai_state_mutex
+        .lock()
+        .unwrap()
+        .get_or_insert_with(AiState::default)
+        .raw_bayer_denoise_model = Some(model.clone());
 
     Ok(model)
 }
@@ -1134,282 +1790,37 @@ pub async fn get_or_init_upscale_model(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<Mutex<Session>>> {
-    if let Some(upscale_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.upscale_model.clone())
-    {
-        return Ok(upscale_model);
+    if let Some(model) = cached_ai_state(ai_state_mutex, |state| state.upscale_model.clone()) {
+        return Ok(model);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(upscale_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.upscale_model.clone())
-    {
-        return Ok(upscale_model);
+    if let Some(model) = cached_ai_state(ai_state_mutex, |state| state.upscale_model.clone()) {
+        return Ok(model);
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        UPSCALE_FILENAME,
-        UPSCALE_URL,
-        UPSCALE_SHA256,
-        "RealPLKSR Upscale Model",
-    )
-    .await?;
+    download_and_verify_model(app_handle, &models_dir, &UPSCALE_ASSET).await?;
 
     let _ = ort::init().with_name("AI-Upscale").commit();
-    let model_path = models_dir.join(UPSCALE_FILENAME);
-    let session = build_session(
-        &model_path,
+    let session = build_coreml_or_cpu_session(
+        &models_dir.join(UPSCALE_FILENAME),
         UPSCALE_SHA256,
-        Some(CoreMLComputeUnits::CPUAndGPU),
+        coreml_units(app_handle),
+        SessionKind::Persistent,
     )?;
-    let upscale_model = Arc::new(Mutex::new(session));
+    let model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.upscale_model = Some(upscale_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: Some(upscale_model.clone()),
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
-
-    Ok(upscale_model)
-}
-
-pub async fn get_or_init_foreground_model(
-    app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
-    ai_init_lock: &TokioMutex<()>,
-) -> Result<Arc<Mutex<Session>>> {
-    if let Some(foreground_model) = ai_state_mutex
+    ai_state_mutex
         .lock()
         .unwrap()
-        .as_ref()
-        .and_then(|state| state.foreground_model.clone())
-    {
-        return Ok(foreground_model);
-    }
+        .get_or_insert_with(AiState::default)
+        .upscale_model = Some(model.clone());
 
-    let _guard = ai_init_lock.lock().await;
-
-    if let Some(foreground_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.foreground_model.clone())
-    {
-        return Ok(foreground_model);
-    }
-
-    let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        BIREFNET_FILENAME,
-        BIREFNET_URL,
-        BIREFNET_SHA256,
-        "Foreground Model",
-    )
-    .await?;
-
-    let _ = ort::init().with_name("AI-Foreground").commit();
-    let model_path = models_dir.join(BIREFNET_FILENAME);
-    let session = build_session(
-        &model_path,
-        BIREFNET_SHA256,
-        Some(CoreMLComputeUnits::CPUAndGPU),
-    )?;
-    let foreground_model = Arc::new(Mutex::new(session));
-
-    crate::register_exit_handler();
-
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.foreground_model = Some(foreground_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: Some(foreground_model.clone()),
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
-
-    Ok(foreground_model)
-}
-
-pub async fn get_or_init_sky_model(
-    app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
-    ai_init_lock: &TokioMutex<()>,
-) -> Result<Arc<Mutex<Session>>> {
-    if let Some(sky_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.sky_model.clone())
-    {
-        return Ok(sky_model);
-    }
-
-    let _guard = ai_init_lock.lock().await;
-
-    if let Some(sky_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.sky_model.clone())
-    {
-        return Ok(sky_model);
-    }
-
-    let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        SKY_FILENAME,
-        SKY_URL,
-        SKY_SHA256,
-        "Sky Model",
-    )
-    .await?;
-
-    let _ = ort::init().with_name("AI-Sky").commit();
-    let model_path = models_dir.join(SKY_FILENAME);
-    let session = build_session(&model_path, SKY_SHA256, Some(CoreMLComputeUnits::CPUAndGPU))?;
-    let sky_model = Arc::new(Mutex::new(session));
-
-    crate::register_exit_handler();
-
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.sky_model = Some(sky_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: Some(sky_model.clone()),
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
-
-    Ok(sky_model)
-}
-
-pub async fn get_or_init_depth_model(
-    app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
-    ai_init_lock: &TokioMutex<()>,
-) -> Result<Arc<Mutex<Session>>> {
-    if let Some(depth_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.depth_model.clone())
-    {
-        return Ok(depth_model);
-    }
-
-    let _guard = ai_init_lock.lock().await;
-
-    if let Some(depth_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.depth_model.clone())
-    {
-        return Ok(depth_model);
-    }
-
-    let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        DEPTH_FILENAME,
-        DEPTH_URL,
-        DEPTH_SHA256,
-        "Depth Model",
-    )
-    .await?;
-
-    let _ = ort::init().with_name("AI-Depth").commit();
-    // CoreML takes several seconds to prepare this model the first time, so it starts on CPU.
-    let depth_model = build_session_upgrading(
-        &models_dir.join(DEPTH_FILENAME),
-        DEPTH_SHA256,
-        CoreMLComputeUnits::CPUAndGPU,
-    )?;
-
-    crate::register_exit_handler();
-
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.depth_model = Some(depth_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: Some(depth_model.clone()),
-            embeddings: None,
-            depth_map: None,
-        });
-    }
-
-    Ok(depth_model)
+    Ok(model)
 }
 
 pub async fn get_or_init_clip_models(
@@ -1417,49 +1828,30 @@ pub async fn get_or_init_clip_models(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<ClipModels>> {
-    if let Some(clip_models) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.clip_models.clone())
-    {
+    if let Some(clip_models) = cached_ai_state(ai_state_mutex, |state| state.clip_models.clone()) {
         return Ok(clip_models);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(clip_models) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.clip_models.clone())
-    {
+    if let Some(clip_models) = cached_ai_state(ai_state_mutex, |state| state.clip_models.clone()) {
         return Ok(clip_models);
     }
 
     let models_dir = get_models_dir(app_handle)?;
 
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        CLIP_MODEL_FILENAME,
-        CLIP_MODEL_URL,
-        CLIP_MODEL_SHA256,
-        "CLIP Model",
-    )
-    .await?;
-
+    download_and_verify_model(app_handle, &models_dir, &CLIP_MODEL_ASSET).await?;
+    download_and_verify_model(app_handle, &models_dir, &CLIP_TOKENIZER_ASSET).await?;
     let clip_tokenizer_path = models_dir.join(CLIP_TOKENIZER_FILENAME);
-    if !clip_tokenizer_path.exists() {
-        let _ = app_handle.emit("ai-model-download-start", "CLIP Tokenizer");
-        let download_result = download_model(CLIP_TOKENIZER_URL, &clip_tokenizer_path).await;
-        let _ = app_handle.emit("ai-model-download-finish", "CLIP Tokenizer");
-        download_result?;
-    }
 
     let _ = ort::init().with_name("AI-Tagging").commit();
     let clip_model_path = models_dir.join(CLIP_MODEL_FILENAME);
-    let model = Mutex::new(build_session(&clip_model_path, CLIP_MODEL_SHA256, None)?);
+    let model = Mutex::new(build_session(
+        &clip_model_path,
+        SessionKind::Persistent,
+        gpu_allowed_on_platform() && gpu_acceleration_enabled(app_handle),
+        None,
+    )?);
     let tokenizer =
         Tokenizer::from_file(clip_tokenizer_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
@@ -1467,27 +1859,11 @@ pub async fn get_or_init_clip_models(
 
     let clip_models = Arc::new(ClipModels { model, tokenizer });
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.clip_models = Some(clip_models.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: Some(clip_models.clone()),
-            search_models: None,
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
+    ai_state_mutex
+        .lock()
+        .unwrap()
+        .get_or_insert_with(AiState::default)
+        .clip_models = Some(clip_models.clone());
 
     Ok(clip_models)
 }
@@ -1497,58 +1873,41 @@ pub async fn get_or_init_search_models(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<SearchModels>> {
-    let cached = || {
-        ai_state_mutex
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|state| state.search_models.clone())
-    };
-    if let Some(search_models) = cached() {
+    if let Some(search_models) =
+        cached_ai_state(ai_state_mutex, |state| state.search_models.clone())
+    {
         return Ok(search_models);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(search_models) = cached() {
+    if let Some(search_models) =
+        cached_ai_state(ai_state_mutex, |state| state.search_models.clone())
+    {
         return Ok(search_models);
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    for (filename, url, sha, name) in [
-        (
-            SEARCH_VISION_FILENAME,
-            SEARCH_VISION_URL,
-            SEARCH_VISION_SHA256,
-            "Search Image Model",
-        ),
-        (
-            SEARCH_TEXT_FILENAME,
-            SEARCH_TEXT_URL,
-            SEARCH_TEXT_SHA256,
-            "Search Text Model",
-        ),
-        (
-            SEARCH_TOKENIZER_FILENAME,
-            SEARCH_TOKENIZER_URL,
-            SEARCH_TOKENIZER_SHA256,
-            "Search Tokenizer",
-        ),
+    for asset in [
+        &SEARCH_VISION_ASSET,
+        &SEARCH_TEXT_ASSET,
+        &SEARCH_TOKENIZER_ASSET,
     ] {
-        download_and_verify_model(app_handle, &models_dir, filename, url, sha, name).await?;
+        download_and_verify_model(app_handle, &models_dir, asset).await?;
     }
 
     let _ = ort::init().with_name("AI-Search").commit();
     let vision = build_session_upgrading(
         &models_dir.join(SEARCH_VISION_FILENAME),
         SEARCH_VISION_SHA256,
-        CoreMLComputeUnits::CPUAndGPU,
+        coreml_units(app_handle),
     )?;
     // int8: stays on CPU, where a short query takes ~15 ms.
-    let text = Mutex::new(build_session(
+    let text = Mutex::new(build_coreml_or_cpu_session(
         &models_dir.join(SEARCH_TEXT_FILENAME),
         SEARCH_TEXT_SHA256,
         None,
+        SessionKind::Persistent,
     )?);
     let tokenizer = Tokenizer::from_file(models_dir.join(SEARCH_TOKENIZER_FILENAME))
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -1561,27 +1920,11 @@ pub async fn get_or_init_search_models(
         tokenizer,
     });
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.search_models = Some(search_models.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: Some(search_models.clone()),
-            lama_model: None,
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
+    ai_state_mutex
+        .lock()
+        .unwrap()
+        .get_or_insert_with(AiState::default)
+        .search_models = Some(search_models.clone());
 
     Ok(search_models)
 }
@@ -1591,65 +1934,31 @@ pub async fn get_or_init_lama_model(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<Mutex<Session>>> {
-    if let Some(lama_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.lama_model.clone())
-    {
+    if let Some(lama_model) = cached_ai_state(ai_state_mutex, |state| state.lama_model.clone()) {
         return Ok(lama_model);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(lama_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.lama_model.clone())
-    {
+    if let Some(lama_model) = cached_ai_state(ai_state_mutex, |state| state.lama_model.clone()) {
         return Ok(lama_model);
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        LAMA_FILENAME,
-        LAMA_URL,
-        LAMA_SHA256,
-        "Inpainting Model",
-    )
-    .await?;
+    download_and_verify_model(app_handle, &models_dir, &LAMA_ASSET).await?;
 
     let _ = ort::init().with_name("AI-Inpainting").commit();
     let model_path = models_dir.join(LAMA_FILENAME);
-    let session = one_shot_session(&model_path)?;
+    let session = build_session(&model_path, SessionKind::OneShot, false, None)?;
     let lama_model = Arc::new(Mutex::new(session));
 
     crate::register_exit_handler();
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.lama_model = Some(lama_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: Some(lama_model.clone()),
-            normal_model: None,
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
+    ai_state_mutex
+        .lock()
+        .unwrap()
+        .get_or_insert_with(AiState::default)
+        .lama_model = Some(lama_model.clone());
 
     Ok(lama_model)
 }
@@ -1659,6 +1968,8 @@ pub async fn get_or_init_lama_model(
 /// which takes under a second.
 pub struct NormalModel {
     models_dir: PathBuf,
+    /// Whether the fixed graphs may run with CoreML (GPU acceleration is on).
+    use_coreml: bool,
     /// The session, and the index in NORMAL_FIXED of the graph it runs (`None`: any-size model).
     loaded: Mutex<Option<(Option<usize>, Session)>>,
     /// Fixed graphs that couldn't be downloaded or compiled; their photos use the CPU model.
@@ -1668,7 +1979,10 @@ pub struct NormalModel {
 impl NormalModel {
     /// The fixed graph to run a `width` x `height` photo through, if CoreML can.
     fn fixed_graph_for(&self, width: u32, height: u32) -> Option<usize> {
-        if !cfg!(target_os = "macos") || std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_some() {
+        if !cfg!(target_os = "macos")
+            || !self.use_coreml
+            || std::env::var_os("RAPIDRAW_AI_CPU_ONLY").is_some()
+        {
             return None;
         }
         fixed_normal_graph(width, height).filter(|&i| !self.unavailable[i].load(Ordering::Relaxed))
@@ -1717,7 +2031,12 @@ impl NormalModel {
         #[cfg(not(target_os = "macos"))]
         let _ = graph;
 
-        let session = one_shot_session(&self.models_dir.join(NORMAL_FILENAME))?;
+        let session = create_session(
+            &self.models_dir.join(NORMAL_FILENAME),
+            SessionKind::OneShot,
+            None,
+            None,
+        )?;
         Ok((None, session))
     }
 }
@@ -1743,51 +2062,33 @@ pub async fn get_or_init_normal_model(
     ai_state_mutex: &Mutex<Option<AiState>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<NormalModel>> {
-    if let Some(normal_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.normal_model.clone())
+    if let Some(normal_model) = cached_ai_state(ai_state_mutex, |state| state.normal_model.clone())
     {
         return Ok(normal_model);
     }
 
     let _guard = ai_init_lock.lock().await;
 
-    if let Some(normal_model) = ai_state_mutex
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|state| state.normal_model.clone())
+    if let Some(normal_model) = cached_ai_state(ai_state_mutex, |state| state.normal_model.clone())
     {
         return Ok(normal_model);
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
-        app_handle,
-        &models_dir,
-        NORMAL_FILENAME,
-        NORMAL_URL,
-        NORMAL_SHA256,
-        "Normal Model",
-    )
-    .await?;
+    download_and_verify_model(app_handle, &models_dir, &NORMAL_ASSET).await?;
 
     // The fixed graphs are only for CoreML. Without them, photos use the CPU model.
+    let use_coreml = coreml_units(app_handle).is_some();
     let unavailable = std::array::from_fn(|_| AtomicBool::new(!cfg!(target_os = "macos")));
-    if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") && use_coreml {
         for (fixed, unavailable) in NORMAL_FIXED.iter().zip(&unavailable) {
-            if let Err(e) = download_and_verify_model(
-                app_handle,
-                &models_dir,
-                fixed.filename,
-                fixed.url,
-                fixed.sha256,
-                "Normal Model",
-            )
-            .await
-            {
+            let asset = ModelAsset {
+                filename: fixed.filename,
+                url: fixed.url,
+                sha256: Some(fixed.sha256),
+                name: NORMAL_ASSET.name,
+            };
+            if let Err(e) = download_and_verify_model(app_handle, &models_dir, &asset).await {
                 log::warn!(
                     "Couldn't get {}, using the CPU model: {}",
                     fixed.filename,
@@ -1801,33 +2102,18 @@ pub async fn get_or_init_normal_model(
     let _ = ort::init().with_name("AI-Normal").commit();
     let normal_model = Arc::new(NormalModel {
         models_dir,
+        use_coreml,
         loaded: Mutex::new(None),
         unavailable,
     });
 
     crate::register_exit_handler();
 
-    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
-    if let Some(state) = ai_state_lock.as_mut() {
-        state.normal_model = Some(normal_model.clone());
-    } else {
-        *ai_state_lock = Some(AiState {
-            models: None,
-            denoise_model: None,
-            raw_denoise_model: None,
-            raw_bayer_denoise_model: None,
-            upscale_model: None,
-            foreground_model: None,
-            sky_model: None,
-            clip_models: None,
-            search_models: None,
-            lama_model: None,
-            normal_model: Some(normal_model.clone()),
-            depth_model: None,
-            embeddings: None,
-            depth_map: None,
-        });
-    }
+    ai_state_mutex
+        .lock()
+        .unwrap()
+        .get_or_insert_with(AiState::default)
+        .normal_model = Some(normal_model.clone());
 
     Ok(normal_model)
 }
@@ -1839,32 +2125,11 @@ struct TileParams {
     overlap: usize,
 }
 
-const TILE_FASTER: TileParams = TileParams {
-    cs: 504,
-    margin: 8,
-    overlap: 32,
-};
-const TILE_BALANCED: TileParams = TileParams {
+const DENOISE_TILE: TileParams = TileParams {
     cs: 504,
     margin: 12,
     overlap: 64,
 };
-const TILE_HIGHER_QUALITY: TileParams = TileParams {
-    cs: 504,
-    margin: 16,
-    overlap: 128,
-};
-
-fn select_tile_params(quality_0_1: f32) -> TileParams {
-    let q = quality_0_1.clamp(0.0, 1.0);
-    if q <= 0.25 {
-        TILE_FASTER
-    } else if q >= 0.75 {
-        TILE_HIGHER_QUALITY
-    } else {
-        TILE_BALANCED
-    }
-}
 
 #[inline]
 fn mirror_coord(c: i32, size: i32) -> i32 {
@@ -1947,7 +2212,7 @@ fn run_native_denoise(
 
         let tile = {
             let mut sess = session.lock().unwrap();
-            let outputs = sess.run(ort::inputs![t_input])?;
+            let outputs = gpu_inference(sess.run(ort::inputs![t_input]))?;
             outputs[0]
                 .try_extract_array::<f32>()?
                 .to_owned()
@@ -1991,12 +2256,10 @@ fn run_native_denoise(
 
 pub fn run_ai_denoise(
     rgb_img: &Rgb32FImage,
-    intensity: f32,
     session: &Mutex<Session>,
     on_progress: &dyn Fn(f32),
 ) -> Result<DynamicImage> {
-    let params = select_tile_params(intensity);
-    let out = run_native_denoise(rgb_img, session, params, on_progress)?;
+    let out = run_native_denoise(rgb_img, session, DENOISE_TILE, on_progress)?;
     Ok(DynamicImage::ImageRgb32F(out))
 }
 
@@ -2563,6 +2826,191 @@ pub fn run_ai_upscale(
         .ok_or_else(|| anyhow::anyhow!("Failed to build upscaled image"))
 }
 
+const LAMA_PIXEL_BUDGET: f32 = 768.0 * 768.0;
+const LAMA_PATCH_RADIUS: i32 = 3;
+const LAMA_PATCH_MATCH_ITERS: u32 = 6;
+
+fn dilate_mask(mask: &[bool], w: usize, h: usize, r: usize) -> Vec<bool> {
+    let mut horiz = vec![false; w * h];
+    horiz.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+        let src = &mask[y * w..(y + 1) * w];
+        let mut prefix = vec![0u32; w + 1];
+        for x in 0..w {
+            prefix[x + 1] = prefix[x] + src[x] as u32;
+        }
+        for (x, out) in row.iter_mut().enumerate() {
+            *out = prefix[(x + r + 1).min(w)] > prefix[x.saturating_sub(r)];
+        }
+    });
+    let mut dilated = vec![false; w * h];
+    dilated.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+        let y0 = y.saturating_sub(r);
+        let y1 = (y + r).min(h - 1);
+        for (x, out) in row.iter_mut().enumerate() {
+            *out = (y0..=y1).any(|yy| horiz[yy * w + x]);
+        }
+    });
+    dilated
+}
+
+fn catmull_rom_sample(img: &[[f32; 3]], w: usize, h: usize, x: f32, y: f32) -> [f32; 3] {
+    let weights = |t: f32| {
+        let t2 = t * t;
+        let t3 = t2 * t;
+        [
+            -0.5 * t3 + t2 - 0.5 * t,
+            1.5 * t3 - 2.5 * t2 + 1.0,
+            -1.5 * t3 + 2.0 * t2 + 0.5 * t,
+            0.5 * t3 - 0.5 * t2,
+        ]
+    };
+    let (fx, fy) = (x.floor(), y.floor());
+    let wx = weights(x - fx);
+    let wy = weights(y - fy);
+    let mut acc = [0.0f32; 3];
+    for (j, wyj) in wy.iter().enumerate() {
+        let sy = (fy as i32 + j as i32 - 1).clamp(0, h as i32 - 1) as usize;
+        for (i, wxi) in wx.iter().enumerate() {
+            let sx = (fx as i32 + i as i32 - 1).clamp(0, w as i32 - 1) as usize;
+            let p = img[sy * w + sx];
+            let wgt = wyj * wxi;
+            acc[0] += p[0] * wgt;
+            acc[1] += p[1] * wgt;
+            acc[2] += p[2] * wgt;
+        }
+    }
+    acc
+}
+
+fn splitmix64(mut z: u64) -> u64 {
+    z = z.wrapping_add(0x9E3779B97F4A7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+fn patch_distance(
+    target: &[[f32; 3]],
+    source: &[[f32; 3]],
+    w: usize,
+    h: usize,
+    t: (i32, i32),
+    s: (i32, i32),
+    limit: f32,
+) -> f32 {
+    let mut d = 0.0f32;
+    for dy in -LAMA_PATCH_RADIUS..=LAMA_PATCH_RADIUS {
+        let ty = (t.1 + dy).clamp(0, h as i32 - 1) as usize;
+        let srow = (s.1 + dy) as usize * w;
+        for dx in -LAMA_PATCH_RADIUS..=LAMA_PATCH_RADIUS {
+            let tx = (t.0 + dx).clamp(0, w as i32 - 1) as usize;
+            let a = target[ty * w + tx];
+            let b = source[srow + (s.0 + dx) as usize];
+            let (e0, e1, e2) = (a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+            d += e0 * e0 + e1 * e1 + e2 * e2;
+        }
+        if d >= limit {
+            return d;
+        }
+    }
+    d
+}
+
+fn lama_patch_match(
+    target: &[[f32; 3]],
+    source: &[[f32; 3]],
+    w: usize,
+    h: usize,
+    is_target: &[bool],
+    is_source: &[bool],
+) -> Option<Vec<Option<(i32, i32)>>> {
+    let sources: Vec<(i32, i32)> = (0..w * h)
+        .filter(|&i| is_source[i])
+        .map(|i| ((i % w) as i32, (i / w) as i32))
+        .collect();
+    let targets: Vec<usize> = (0..w * h).filter(|&i| is_target[i]).collect();
+    if sources.is_empty() || targets.is_empty() {
+        return None;
+    }
+
+    let valid = |p: (i32, i32)| {
+        p.0 >= 0
+            && p.1 >= 0
+            && (p.0 as usize) < w
+            && (p.1 as usize) < h
+            && is_source[p.1 as usize * w + p.0 as usize]
+    };
+    let random_source = |seed: u64| sources[(seed % sources.len() as u64) as usize];
+
+    let mut nnf = vec![(0i32, 0i32); w * h];
+    let mut cost = vec![f32::MAX; w * h];
+    let init: Vec<((i32, i32), f32)> = targets
+        .par_iter()
+        .map(|&i| {
+            let t = ((i % w) as i32, (i / w) as i32);
+            let s = random_source(splitmix64(i as u64));
+            (s, patch_distance(target, source, w, h, t, s, f32::MAX))
+        })
+        .collect();
+    for (&i, (s, c)) in targets.iter().zip(init) {
+        nnf[i] = s;
+        cost[i] = c;
+    }
+
+    for iter in 0..LAMA_PATCH_MATCH_ITERS {
+        let jump = 1i32 << (LAMA_PATCH_MATCH_ITERS - 1 - iter).min(3);
+        let updates: Vec<((i32, i32), f32)> = targets
+            .par_iter()
+            .map(|&i| {
+                let t = ((i % w) as i32, (i / w) as i32);
+                let mut best = nnf[i];
+                let mut best_cost = cost[i];
+                let consider = |c: (i32, i32), best: &mut (i32, i32), best_cost: &mut f32| {
+                    if valid(c) && c != *best {
+                        let d = patch_distance(target, source, w, h, t, c, *best_cost);
+                        if d < *best_cost {
+                            *best = c;
+                            *best_cost = d;
+                        }
+                    }
+                };
+
+                for (dx, dy) in [(-jump, 0), (jump, 0), (0, -jump), (0, jump)] {
+                    let (nx, ny) = (t.0 + dx, t.1 + dy);
+                    if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h {
+                        let n = ny as usize * w + nx as usize;
+                        if is_target[n] {
+                            consider((nnf[n].0 - dx, nnf[n].1 - dy), &mut best, &mut best_cost);
+                        }
+                    }
+                }
+
+                let mut seed = splitmix64(i as u64 ^ ((iter as u64 + 1) << 40));
+                let mut radius = w.max(h) as i32;
+                while radius >= 1 {
+                    seed = splitmix64(seed);
+                    let span = (2 * radius + 1) as u64;
+                    let c = (
+                        best.0 + (seed % span) as i32 - radius,
+                        best.1 + ((seed >> 32) % span) as i32 - radius,
+                    );
+                    consider(c, &mut best, &mut best_cost);
+                    radius /= 2;
+                }
+                consider(random_source(splitmix64(seed)), &mut best, &mut best_cost);
+
+                (best, best_cost)
+            })
+            .collect();
+        for (&i, (s, c)) in targets.iter().zip(updates) {
+            nnf[i] = s;
+            cost[i] = c;
+        }
+    }
+
+    Some((0..w * h).map(|i| is_target[i].then_some(nnf[i])).collect())
+}
+
 pub fn run_lama_inpainting(
     image: &DynamicImage,
     mask: &GrayImage,
@@ -2605,42 +3053,34 @@ pub fn run_lama_inpainting(
     let cropped_img = image.crop_imm(x0, y0, crop_w, crop_h).to_rgba8();
     let cropped_mask = imageops::crop_imm(mask, x0, y0, crop_w, crop_h).to_image();
 
-    let max_dim_limit: u32 = 768;
-    let needs_downscale = crop_w > max_dim_limit || crop_h > max_dim_limit;
+    let scale = (LAMA_PIXEL_BUDGET / (crop_w as f32 * crop_h as f32))
+        .sqrt()
+        .min(1.0);
+    let fw = ((crop_w as f32 * scale).round() as u32).max(1);
+    let fh = ((crop_h as f32 * scale).round() as u32).max(1);
+    let needs_downscale = fw != crop_w || fh != crop_h;
 
-    let (fw, fh, inf_img, inf_mask) = if needs_downscale {
-        let scale = max_dim_limit as f32 / crop_w.max(crop_h) as f32;
-
-        let scaled_w = (crop_w as f32 * scale).round().max(1.0) as u32;
-        let scaled_h = (crop_h as f32 * scale).round().max(1.0) as u32;
-
+    let (inf_img, inf_mask) = if needs_downscale {
         (
-            scaled_w,
-            scaled_h,
-            imageops::resize(&cropped_img, scaled_w, scaled_h, FilterType::Lanczos3),
-            imageops::resize(&cropped_mask, scaled_w, scaled_h, FilterType::Triangle),
+            imageops::resize(&cropped_img, fw, fh, FilterType::Lanczos3),
+            imageops::resize(&cropped_mask, fw, fh, FilterType::Triangle),
         )
     } else {
-        (crop_w, crop_h, cropped_img.clone(), cropped_mask.clone())
+        (cropped_img.clone(), cropped_mask.clone())
     };
 
-    let align = 64u32;
-    let mut tensor_dim = fw.max(fh);
-    if tensor_dim % align != 0 {
-        tensor_dim += align - (tensor_dim % align);
-    }
-    let tensor_dim = tensor_dim.max(align) as usize;
+    let align = 32u32;
+    let tensor_w = fw.div_ceil(align) * align;
+    let tensor_h = fh.div_ceil(align) * align;
 
-    let mut img_tensor = Array::<f32, _>::zeros((1, 3, tensor_dim, tensor_dim));
-    let mut msk_tensor = Array::<f32, _>::zeros((1, 1, tensor_dim, tensor_dim));
+    let mut img_tensor = Array::<f32, _>::zeros((1, 3, tensor_h as usize, tensor_w as usize));
+    let mut msk_tensor = Array::<f32, _>::zeros((1, 1, tensor_h as usize, tensor_w as usize));
 
-    for y in 0..tensor_dim {
-        for x in 0..tensor_dim {
-            let sx = (x as u32).min(fw.saturating_sub(1));
-            let sy = (y as u32).min(fh.saturating_sub(1));
-
-            let p = inf_img.get_pixel(sx, sy);
-            let m = inf_mask.get_pixel(sx, sy)[0];
+    for y in 0..tensor_h {
+        for x in 0..tensor_w {
+            let p = inf_img.get_pixel(x.min(fw - 1), y.min(fh - 1));
+            let m = inf_mask.get_pixel(x.min(fw - 1), y.min(fh - 1))[0];
+            let (y, x) = (y as usize, x as usize);
 
             img_tensor[[0, 0, y, x]] = p[0] as f32 / 255.0;
             img_tensor[[0, 1, y, x]] = p[1] as f32 / 255.0;
@@ -2658,40 +3098,122 @@ pub fn run_lama_inpainting(
         outputs[0].try_extract_array::<f32>()?.to_owned()
     };
 
-    let mut result_inf = RgbaImage::new(fw, fh);
-    for y in 0..fh {
-        for x in 0..fw {
-            let r = output_tensor[[0, 0, y as usize, x as usize]].clamp(0.0, 255.0) as u8;
-            let g = output_tensor[[0, 1, y as usize, x as usize]].clamp(0.0, 255.0) as u8;
-            let b = output_tensor[[0, 2, y as usize, x as usize]].clamp(0.0, 255.0) as u8;
-            result_inf.put_pixel(x, y, Rgba([r, g, b, 255]));
-        }
-    }
+    let (iw, ih) = (fw as usize, fh as usize);
+    let target: Vec<[f32; 3]> = (0..iw * ih)
+        .map(|i| {
+            let (x, y) = (i % iw, i / iw);
+            [0, 1, 2].map(|c| (output_tensor[[0, c, y, x]] / 255.0).clamp(0.0, 1.0))
+        })
+        .collect();
+    let source: Vec<[f32; 3]> = inf_img
+        .pixels()
+        .map(|p| {
+            [
+                p[0] as f32 / 255.0,
+                p[1] as f32 / 255.0,
+                p[2] as f32 / 255.0,
+            ]
+        })
+        .collect();
 
-    let result_crop = if needs_downscale {
-        imageops::resize(&result_inf, crop_w, crop_h, FilterType::Lanczos3)
+    let nnf = if needs_downscale {
+        let hole: Vec<bool> = inf_mask.pixels().map(|p| p[0] > 0).collect();
+        let is_target = dilate_mask(&hole, iw, ih, 1);
+        let blocked = dilate_mask(&hole, iw, ih, LAMA_PATCH_RADIUS as usize + 2);
+        let r = LAMA_PATCH_RADIUS;
+        let is_source: Vec<bool> = (0..iw * ih)
+            .map(|i| {
+                let (x, y) = ((i % iw) as i32, (i / iw) as i32);
+                !blocked[i] && x >= r && y >= r && x < iw as i32 - r && y < ih as i32 - r
+            })
+            .collect();
+        lama_patch_match(&target, &source, iw, ih, &is_target, &is_source)
     } else {
-        result_inf
+        None
     };
 
-    let mut final_crop = cropped_img;
+    let sx = fw as f32 / crop_w as f32;
+    let sy = fh as f32 / crop_h as f32;
+    let mut final_crop = cropped_img.clone();
 
-    for y in 0..crop_h {
-        for x in 0..crop_w {
-            let m = cropped_mask.get_pixel(x, y)[0];
-            if m > 0 {
+    final_crop
+        .par_chunks_mut(crop_w as usize * 4)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for x in 0..crop_w as usize {
+                let m = cropped_mask.get_pixel(x as u32, y as u32)[0];
+                if m == 0 {
+                    continue;
+                }
+                let u = (x as f32 + 0.5) * sx - 0.5;
+                let v = (y as f32 + 0.5) * sy - 0.5;
+                let mut value = catmull_rom_sample(&target, iw, ih, u, v);
+
+                if let Some(nnf) = &nnf {
+                    let (u0, v0) = (u.floor(), v.floor());
+                    let (fu, fv) = (u - u0, v - v0);
+                    let mut groups = [((0i32, 0i32), 0.0f32, [0.0f32; 3]); 4];
+                    let mut group_count = 0;
+                    for (cu, cv, wgt) in [
+                        (u0, v0, (1.0 - fu) * (1.0 - fv)),
+                        (u0 + 1.0, v0, fu * (1.0 - fv)),
+                        (u0, v0 + 1.0, (1.0 - fu) * fv),
+                        (u0 + 1.0, v0 + 1.0, fu * fv),
+                    ] {
+                        let cu = (cu as i32).clamp(0, iw as i32 - 1);
+                        let cv = (cv as i32).clamp(0, ih as i32 - 1);
+                        let Some((su, sv)) = nnf[cv as usize * iw + cu as usize] else {
+                            continue;
+                        };
+                        let qx = x as i32 + ((su - cu) as f32 / sx).round() as i32;
+                        let qy = y as i32 + ((sv - cv) as f32 / sy).round() as i32;
+                        if qx < 0 || qy < 0 || qx >= crop_w as i32 || qy >= crop_h as i32 {
+                            continue;
+                        }
+                        if cropped_mask.get_pixel(qx as u32, qy as u32)[0] > 0 {
+                            continue;
+                        }
+                        let o = cropped_img.get_pixel(qx as u32, qy as u32);
+                        let low = catmull_rom_sample(
+                            &source,
+                            iw,
+                            ih,
+                            (qx as f32 + 0.5) * sx - 0.5,
+                            (qy as f32 + 0.5) * sy - 0.5,
+                        );
+                        let detail = [0, 1, 2].map(|c| o[c] as f32 / 255.0 - low[c]);
+                        let shift = (qx - x as i32, qy - y as i32);
+                        match groups[..group_count].iter_mut().find(|g| g.0 == shift) {
+                            Some(g) => g.1 += wgt,
+                            None => {
+                                groups[group_count] = (shift, wgt, detail);
+                                group_count += 1;
+                            }
+                        }
+                    }
+                    let norm = groups[..group_count]
+                        .iter()
+                        .map(|g| g.1 * g.1)
+                        .sum::<f32>()
+                        .sqrt();
+                    if norm > 0.0 {
+                        for (_, wgt, detail) in &groups[..group_count] {
+                            for c in 0..3 {
+                                value[c] += wgt * detail[c] / norm;
+                            }
+                        }
+                    }
+                }
+
                 let alpha = m as f32 / 255.0;
-                let p = result_crop.get_pixel(x, y);
-                let orig = final_crop.get_pixel(x, y);
-
-                let r = (p[0] as f32 * alpha + orig[0] as f32 * (1.0 - alpha)) as u8;
-                let g = (p[1] as f32 * alpha + orig[1] as f32 * (1.0 - alpha)) as u8;
-                let b = (p[2] as f32 * alpha + orig[2] as f32 * (1.0 - alpha)) as u8;
-
-                final_crop.put_pixel(x, y, Rgba([r, g, b, 255]));
+                let px = &mut row[x * 4..x * 4 + 3];
+                for c in 0..3 {
+                    px[c] = (value[c].clamp(0.0, 1.0) * 255.0 * alpha
+                        + px[c] as f32 * (1.0 - alpha))
+                        .round() as u8;
+                }
             }
-        }
-    }
+        });
 
     Ok((final_crop, x0, y0))
 }
@@ -2936,6 +3458,326 @@ pub fn run_sam_decoder(
     } else {
         Ok(image::imageops::blur(&binary_mask, 2.0))
     }
+}
+
+fn sigmoid(value: f32) -> f32 {
+    1.0 / (1.0 + (-value).exp())
+}
+
+pub fn run_esam3_image_encoder(
+    image: &DynamicImage,
+    encoder_session: &Mutex<Session>,
+) -> Result<Esam3Features> {
+    let size = ESAM3_INPUT_SIZE as usize;
+    let padding = ESAM3_INPUT_PADDING as i64;
+    let inner = ESAM3_INPUT_SIZE - 2 * ESAM3_INPUT_PADDING;
+    let resized_rgb = image
+        .resize_exact(inner, inner, FilterType::Triangle)
+        .into_rgb8();
+
+    let reflect = |i: usize| -> u32 {
+        let (i, n) = (i as i64 - padding, inner as i64);
+        let i = if i < 0 { -i } else { i };
+        (if i >= n { 2 * n - 2 - i } else { i }) as u32
+    };
+    let mut input_tensor = Array4::<f32>::zeros((1, 3, size, size));
+    for y in 0..size {
+        let src_y = reflect(y);
+        for x in 0..size {
+            let pixel = resized_rgb.get_pixel(reflect(x), src_y);
+            for c in 0..3 {
+                input_tensor[[0, c, y, x]] = pixel[c] as f32 / 127.5 - 1.0;
+            }
+        }
+    }
+
+    let mut session = encoder_session.lock().unwrap();
+    let outputs =
+        gpu_inference(session.run(ort::inputs!["image" => Tensor::from_array(input_tensor)?]))?;
+    let extract = |name: &str| -> Result<Array<f32, IxDyn>> {
+        Ok(outputs[name].try_extract_array::<f32>()?.to_owned())
+    };
+
+    Ok(Esam3Features {
+        path_hash: String::new(),
+        fpn: [extract("fpn_0")?, extract("fpn_1")?, extract("fpn_2")?],
+        pos: extract("pos_2")?,
+    })
+}
+
+fn run_esam3_queries<T>(
+    decoder_session: &Mutex<Session>,
+    features: &Esam3Features,
+    prompt: &Esam3Prompt,
+    read: impl FnOnce(Vec<f32>, ArrayViewD<f32>, ArrayViewD<f32>) -> T,
+) -> Result<T> {
+    let exemplar_boxes = Array::<f32, _>::zeros((ESAM3_EXEMPLAR_SLOTS, 1, 4));
+    let exemplar_labels = Array::<i64, _>::zeros((ESAM3_EXEMPLAR_SLOTS, 1));
+    let exemplar_mask = Array::<f32, _>::ones((1, ESAM3_EXEMPLAR_SLOTS));
+
+    let mut session = decoder_session.lock().unwrap();
+    let outputs = gpu_inference(session.run(ort::inputs![
+        "fpn_0" => TensorRef::from_array_view(&features.fpn[0])?,
+        "fpn_1" => TensorRef::from_array_view(&features.fpn[1])?,
+        "fpn_2" => TensorRef::from_array_view(&features.fpn[2])?,
+        "pos_2" => TensorRef::from_array_view(&features.pos)?,
+        "language_features" => TensorRef::from_array_view(&prompt.features)?,
+        "language_padding" => TensorRef::from_array_view(&prompt.padding)?,
+        "exemplar_boxes" => Tensor::from_array(exemplar_boxes)?,
+        "exemplar_labels" => Tensor::from_array(exemplar_labels)?,
+        "exemplar_mask" => Tensor::from_array(exemplar_mask)?,
+    ]))?;
+
+    let presence = outputs["presence_logit"]
+        .try_extract_array::<f32>()?
+        .iter()
+        .next()
+        .map_or(0.0, |&v| sigmoid(v));
+    let scores = outputs["pred_logits"]
+        .try_extract_array::<f32>()?
+        .iter()
+        .map(|&logit| sigmoid(logit) * presence)
+        .collect();
+    Ok(read(
+        scores,
+        outputs["pred_boxes"].try_extract_array::<f32>()?,
+        outputs["pred_masks"].try_extract_array::<f32>()?,
+    ))
+}
+
+pub fn run_esam3_boxes(
+    decoder_session: &Mutex<Session>,
+    features: &Esam3Features,
+    prompt: &Esam3Prompt,
+    score_threshold: f32,
+) -> Result<Vec<(f32, [f32; 4])>> {
+    let mut detections =
+        run_esam3_queries(decoder_session, features, prompt, |scores, boxes, _| {
+            scores
+                .iter()
+                .enumerate()
+                .filter(|&(_, &score)| score > score_threshold)
+                .map(|(query, &score)| {
+                    let size = ESAM3_INPUT_SIZE as f32;
+                    let padding = ESAM3_INPUT_PADDING as f32;
+                    let inner = size - 2.0 * padding;
+                    let [cx, cy, w, h]: [f32; 4] = std::array::from_fn(|i| {
+                        let v = boxes[[0, query, i]] * size;
+                        if i < 2 {
+                            (v - padding) / inner
+                        } else {
+                            v / inner
+                        }
+                    });
+                    (
+                        score,
+                        [cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0],
+                    )
+                })
+                .collect::<Vec<_>>()
+        })?;
+    detections.sort_by(|a, b| b.0.total_cmp(&a.0));
+    Ok(detections)
+}
+
+pub fn run_esam3_decoder(
+    decoder_session: &Mutex<Session>,
+    features: &Esam3Features,
+    prompt: &Esam3Prompt,
+    image: &DynamicImage,
+    score_threshold: f32,
+    refine_eps: f32,
+) -> Result<Option<GrayImage>> {
+    let (coarse_mask, mask_w, mask_h) =
+        run_esam3_queries(decoder_session, features, prompt, |scores, _, masks| {
+            let (mask_h, mask_w) = (masks.shape()[2], masks.shape()[3]);
+            let mut coarse_mask: Option<Vec<f32>> = None;
+            for (query, &score) in scores.iter().enumerate() {
+                if score <= score_threshold {
+                    continue;
+                }
+                let combined = coarse_mask.get_or_insert_with(|| vec![0.0; mask_h * mask_w]);
+                let query_mask = masks.slice(s![0, query, .., ..]);
+                for (out, &value) in combined.iter_mut().zip(query_mask.iter()) {
+                    *out = out.max(sigmoid(value));
+                }
+            }
+            (coarse_mask, mask_w, mask_h)
+        })?;
+
+    let Some(coarse_mask) = coarse_mask else {
+        return Ok(None);
+    };
+
+    let coarse_mask = GrayImage::from_raw(
+        mask_w as u32,
+        mask_h as u32,
+        coarse_mask
+            .iter()
+            .map(|&v| {
+                let v = ((v - ESAM3_MASK_LOW) / (ESAM3_MASK_HIGH - ESAM3_MASK_LOW)).clamp(0.0, 1.0);
+                (v * 255.0).round() as u8
+            })
+            .collect(),
+    )
+    .ok_or_else(|| anyhow::anyhow!("Failed to create mask from EfficientSAM3 output"))?;
+
+    let input_mask = imageops::resize(
+        &coarse_mask,
+        ESAM3_INPUT_SIZE,
+        ESAM3_INPUT_SIZE,
+        FilterType::Triangle,
+    );
+    let inner = ESAM3_INPUT_SIZE - 2 * ESAM3_INPUT_PADDING;
+    let image_mask = imageops::crop_imm(
+        &input_mask,
+        ESAM3_INPUT_PADDING,
+        ESAM3_INPUT_PADDING,
+        inner,
+        inner,
+    )
+    .to_image();
+
+    let (orig_width, orig_height) = image.dimensions();
+    let scale = (ESAM3_REFINE_SIZE as f32 / orig_width.max(orig_height) as f32).min(1.0);
+    let refine_w = ((orig_width as f32 * scale).round() as u32).max(1);
+    let refine_h = ((orig_height as f32 * scale).round() as u32).max(1);
+    let refine_mask = imageops::resize(&image_mask, refine_w, refine_h, FilterType::Triangle);
+
+    Ok(Some(fast_color_guided_filter(
+        &image.to_rgb8(),
+        &refine_mask,
+        ESAM3_REFINE_RADIUS,
+        refine_eps,
+    )))
+}
+
+pub fn run_esam3_zoomed_decoder(
+    encoder_session: &Mutex<Session>,
+    decoder_session: &Mutex<Session>,
+    features: &Esam3Features,
+    prompt: &Esam3Prompt,
+    image: &DynamicImage,
+    score_threshold: f32,
+    refine_eps: f32,
+) -> Result<Option<GrayImage>> {
+    let Some(mut mask) = run_esam3_decoder(
+        decoder_session,
+        features,
+        prompt,
+        image,
+        score_threshold,
+        refine_eps,
+    )?
+    else {
+        return Ok(None);
+    };
+
+    let (width, height) = image.dimensions();
+    let grid_size = ZOOM_MIN_SIDE as u32;
+    let grid = imageops::resize(&mask, grid_size, grid_size, FilterType::Triangle);
+    if let Some((x, y, crop_width, crop_height)) = zoom_region(&grid, width, height) {
+        let crop = image.crop_imm(x, y, crop_width, crop_height);
+        let crop_features = run_esam3_image_encoder(&crop, encoder_session)?;
+        if let Some(detail) = run_esam3_decoder(
+            decoder_session,
+            &crop_features,
+            prompt,
+            &crop,
+            score_threshold,
+            refine_eps,
+        )? && mask_iou(&mask, &detail, x, y) >= ESAM3_ZOOM_MIN_IOU
+        {
+            blend_feathered(&mut mask, &detail, x, y);
+        }
+    }
+
+    Ok(Some(mask))
+}
+
+fn mask_iou(mask: &GrayImage, detail: &GrayImage, x0: u32, y0: u32) -> f32 {
+    let (mut intersection, mut union) = (0u64, 0u64);
+    for (u, v, refined) in detail.enumerate_pixels() {
+        let base = mask.get_pixel(x0 + u, y0 + v)[0] >= 128;
+        let refined = refined[0] >= 128;
+        intersection += (base && refined) as u64;
+        union += (base || refined) as u64;
+    }
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f32 / union as f32
+    }
+}
+
+fn blend_feathered(mask: &mut GrayImage, detail: &GrayImage, x0: u32, y0: u32) {
+    let (width, height) = mask.dimensions();
+    let (crop_width, crop_height) = detail.dimensions();
+    let feather = (crop_width.min(crop_height) as f32 * ZOOM_FEATHER).max(1.0);
+    let ramp = |start: u32, length: u32, extent: u32| -> Vec<f32> {
+        (0..length)
+            .map(|i| {
+                let head = if start == 0 { f32::MAX } else { i as f32 + 0.5 };
+                let tail = if start + length == extent {
+                    f32::MAX
+                } else {
+                    (length - i) as f32 - 0.5
+                };
+                (head.min(tail) / feather).min(1.0)
+            })
+            .collect()
+    };
+    let weights_x = ramp(x0, crop_width, width);
+    let weights_y = ramp(y0, crop_height, height);
+
+    for (v, weight_y) in weights_y.iter().enumerate() {
+        for (u, weight_x) in weights_x.iter().enumerate() {
+            let weight = weight_x.min(*weight_y);
+            let base = mask.get_pixel(x0 + u as u32, y0 + v as u32)[0] as f32;
+            let refined = detail.get_pixel(u as u32, v as u32)[0] as f32;
+            mask.put_pixel(
+                x0 + u as u32,
+                y0 + v as u32,
+                Luma([(base + (refined - base) * weight).round() as u8]),
+            );
+        }
+    }
+}
+
+fn zoom_region(coarse: &GrayImage, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (u32::MAX, u32::MAX, 0, 0);
+    for (x, y, pixel) in coarse.enumerate_pixels() {
+        if pixel[0] >= 128 {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x + 1);
+            max_y = max_y.max(y + 1);
+        }
+    }
+    if min_x == u32::MAX {
+        return None;
+    }
+
+    let scale_x = width as f32 / coarse.width() as f32;
+    let scale_y = height as f32 / coarse.height() as f32;
+    let long_side = width.max(height) as f32;
+    let subject_side = ((max_x - min_x) as f32 * scale_x).max((max_y - min_y) as f32 * scale_y);
+    let side = (subject_side * (1.0 + 2.0 * ZOOM_MARGIN))
+        .max(ZOOM_MIN_SIDE)
+        .min(long_side);
+    if side > ZOOM_MAX_FRACTION * long_side {
+        return None;
+    }
+
+    let place = |min: u32, max: u32, scale: f32, extent: u32| {
+        let center = (min + max) as f32 * 0.5 * scale;
+        let length = side.min(extent as f32);
+        let start = (center - length * 0.5).clamp(0.0, extent as f32 - length);
+        (start as u32, (length as u32).min(extent - start as u32))
+    };
+    let (x, crop_width) = place(min_x, max_x, scale_x, width);
+    let (y, crop_height) = place(min_y, max_y, scale_y, height);
+    Some((x, y, crop_width, crop_height))
 }
 
 /// Sky mask from SkyWater-Seg. The model sees the whole frame stretched to its square input, and
@@ -3582,6 +4424,12 @@ pub struct AiSubjectMaskParameters {
     pub flip_vertical: Option<bool>,
     #[serde(default)]
     pub orientation_steps: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_space_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_space_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_source: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -3597,6 +4445,46 @@ pub struct AiSkyMaskParameters {
     pub flip_vertical: Option<bool>,
     #[serde(default)]
     pub orientation_steps: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_source: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiTextMaskParameters {
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub mask_data_base64: Option<String>,
+    #[serde(default)]
+    pub rotation: Option<f32>,
+    #[serde(default)]
+    pub flip_horizontal: Option<bool>,
+    #[serde(default)]
+    pub flip_vertical: Option<bool>,
+    #[serde(default)]
+    pub orientation_steps: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_source: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiFaceMaskParameters {
+    #[serde(default)]
+    pub parts: Vec<String>,
+    #[serde(default)]
+    pub mask_data_base64: Option<String>,
+    #[serde(default)]
+    pub rotation: Option<f32>,
+    #[serde(default)]
+    pub flip_horizontal: Option<bool>,
+    #[serde(default)]
+    pub flip_vertical: Option<bool>,
+    #[serde(default)]
+    pub orientation_steps: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_source: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -3612,6 +4500,8 @@ pub struct AiForegroundMaskParameters {
     pub flip_vertical: Option<bool>,
     #[serde(default)]
     pub orientation_steps: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_source: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -3637,6 +4527,8 @@ pub struct AiDepthMaskParameters {
     pub flip_vertical: Option<bool>,
     #[serde(default)]
     pub orientation_steps: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_source: Option<String>,
 }
 
 #[cfg(test)]

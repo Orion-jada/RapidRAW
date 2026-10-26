@@ -28,7 +28,7 @@ import AdjustmentSubSection from './AdjustmentSubSection';
 import { TextVariants } from '../../types/typography';
 import { DepthRangePicker } from '../ui/DepthRangePicker';
 import RecalculateMapButton from '../ui/RecalculateMapButton';
-import { useProcessStore } from '../../store/useProcessStore';
+import { selectAiModelDownloadStatus, useProcessStore } from '../../store/useProcessStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useContextMenu } from '../../context/ContextMenuContext';
@@ -196,7 +196,7 @@ function EffectsPanel({
   const [isGeneratingNormals, setIsGeneratingNormals] = useState(false);
   const [isGeneratingFogDepth, setIsGeneratingFogDepth] = useState(false);
   const [hoveredLightId, setHoveredLightId] = useState<string | null>(null);
-  const aiModelDownloadStatus = useProcessStore((state) => state.aiModelDownloadStatus);
+  const aiModelDownloadStatus = useProcessStore(selectAiModelDownloadStatus);
   const isRelightPickerActive = useEditorStore((state) => state.isRelightPickerActive);
   const activeRelightLightId = useEditorStore((state) => state.activeRelightLightId);
   const setEditor = useEditorStore((state) => state.setEditor);

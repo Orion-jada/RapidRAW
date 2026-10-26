@@ -50,13 +50,13 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 
 ### Faster AI on Apple Silicon
 
-- **GPU acceleration with CoreML:** AI models run on the Mac's GPU instead of the CPU. AI denoise is 16× faster (82.6 s → 5.2 s for a 32 MP photo on an M3 Max), depth estimation 3× and masks about 2×. Models that don't benefit stay on the CPU. Set `RAPIDRAW_AI_CPU_ONLY=1` to force the CPU for everything.
+- **GPU acceleration with CoreML:** AI models run on the Mac's GPU instead of the CPU. AI denoise is 16× faster (82.6 s → 5.2 s for a 32 MP photo on an M3 Max), depth estimation 3× and masks about 2×. Models that don't benefit stay on the CPU. Turning off **Use GPU for AI models** in Settings (added by the original RapidRAW) runs them all on the CPU, as does setting `RAPIDRAW_AI_CPU_ONLY=1`.
 - **GPU caches prepared in seconds:** The first time each model is used, macOS now prepares it for the GPU in 5 s or less (Depth Anything 3 used to take over 4 minutes), and the prepared copies take about a third of the space: about 3.4 GB for all models instead of 9.5 GB. The old copies are deleted when this version first starts, and each model is prepared again once.
 
 ### Better Masks
 
 - **Subject mask with SAM 2.1:** Replaces SAM 1 with SAM 2.1 (Hiera Base+). Dragging a box now takes about 0.6 s instead of 2 s.
-- **Foreground mask with BiRefNet:** Replaces U²-Net with BiRefNet (1024 px), at about 0.55 s per full-resolution mask on the GPU.
+- **Foreground mask with full BiRefNet:** Uses the full BiRefNet model (1024 px) instead of the original's BiRefNet Lite, at about 0.55 s per full-resolution mask on the GPU.
 - **Sky mask with SkyWater-Seg:** Replaces U²-Net with SkyWater-Seg. It picks up small patches of sky, gives clean edges around antennas and rooftops, and no longer marks bright windows or reflections as sky. About 0.5 s per mask.
 - **Depth with Depth Anything 3:** Depth masks, lens blur and fog use Depth Anything 3 Mono-Large instead of Depth Anything V2 Small. Outlines of hair, ears and hands are much crisper, and people stand out from busy backgrounds, which V2 often put at the same distance. The model is downloaded only when you first use depth (670 MB) and takes about 0.2 s per photo on the GPU. On a Mac, macOS prepares it for the GPU in about 5 s the first time; depth works on the CPU meanwhile. Depth masks, lens blur and fog made before keep their saved depth map; click **Recalculate depth** under any of them to redo it with Depth Anything 3.
 - **Subtract from masks:** A **Subtract** button next to "Add New Component" takes away any component type from a mask: brush, linear, radial, AI masks or ranges. Use a brush to trim a subject mask that grabbed too much, or combine linear gradients to shape an exact area. Soft edges fade out instead of leaving hard holes.
@@ -68,9 +68,10 @@ This is a fork. It keeps everything in the original RapidRAW, picks up the origi
 - **Depth, normals and 3D view:** The cube button at the top of the editor shows the photo's depth map from Depth Anything 3, in gray or color, and its normal map from MoGe-3. A 3D tab turns MoGe-3's points into a model of the scene that you can orbit, pan and zoom, covered with the photo, its normals or plain clay. It shows the whole photo, before cropping, and takes about half a second on a Mac's GPU.
 - **Rebuilt auto-enhance:** Auto-enhance now renders a small preview through the real editing pipeline and tunes exposure, contrast, highlights, shadows, whites and blacks, vibrance and white balance against what the photo actually looks like, in about 0.16 s. Night shots stay dark, and clarity, dehaze and vignette are left alone. Upstream's Subtle, Normal and Strong modes scale its corrections to half, full or one and a half strength. Also available in batch and from the command line (`--auto`).
 - **AI denoise for RAW files with RawNIND:** RAW files are denoised by RawNIND on the linear image before tone mapping, which keeps highlight detail (about 2 s for 24 MP). The AI slider is now a simple Strength control. Other files still use NIND.
-- **RawNIND Bayer denoise:** a second RawNIND option in the Denoise menu that cleans the camera's sensor data before it is turned into colour (demosaiced), as darktable does. It removes more colour noise in dark areas and takes about 0.5 s for 24 MP. It works with Bayer sensors (most cameras); for others, such as Fujifilm X-Trans, it uses regular RawNIND.
+- **RawNIND Bayer denoise:** a second RawNIND option in the Denoise window that cleans the camera's sensor data before it is turned into colour (demosaiced), as darktable does. It removes more colour noise in dark areas and takes about 0.5 s for 24 MP. It works with Bayer sensors (most cameras); for others, such as Fujifilm X-Trans, it uses regular RawNIND.
 - **Denoised RAWs keep their shadows:** A denoised RAW is saved as a `_Denoised.dng` that edits just like the original RAW, so brightening it afterwards brings back shadow detail instead of solid black. Exposure, white balance and other edits behave the same as on the original. (Denoised RAWs used to be saved as TIFFs with the shadows already crushed.)
-- **Live AI denoise uses RawNIND for RAWs:** The AI Denoise switch in the Details panel (new in the original RapidRAW, adjustable without making a new file) runs RawNIND on RAW files instead of NIND, from the image before colour noise reduction and sharpening, the same way the Denoise button does. Other files still use NIND.
+- **Live AI denoise uses RawNIND for RAWs:** The AI Denoise switch in the Details panel (new in the original RapidRAW, adjustable without making a new file) runs RawNIND on RAW files instead of NIND, from the image before colour noise reduction and sharpening, the same way the Denoise window does. Other files still use NIND.
+- **Denoise window kept:** The original replaced its Denoise window with the AI Denoise switch. This version has both: right-click a photo and choose **Save Denoised Copy…**, or **Denoise → Save Denoised Copies…** for several photos in the library, to save denoised copies with RawNIND, RawNIND Bayer or Apple RAW 9 next to the originals.
 - **AI 2× upscale on export:** Doubles width and height with a RealPLKSR super-resolution model, after edits and crop. About a minute per 24 MP photo on the GPU, with a strength slider (default 60%, because full strength smooths fine texture). Also available from the command line (`--ai-upscale`).
 
 ### Library
@@ -130,7 +131,7 @@ Each AI tool downloads its model the first time you use it, then keeps it. The m
 | 2× upscale         | RealPLKSR                   | 32 MB        |
 | Search and culling | SigLIP 2                    | about 500 MB |
 
-The other models (tagging, inpainting, and denoise for non-RAW files) come from the original project. On a Mac, the first use of each model is slower while macOS prepares it for the GPU; after that it's cached. The SkyWater-Seg sky model is licensed for non-commercial use only.
+The other models (tagging, inpainting, text and face masks, and denoise for non-RAW files) come from the original project. On a Mac, the first use of each model is slower while macOS prepares it for the GPU; after that it's cached. The SkyWater-Seg sky model is licensed for non-commercial use only.
 
 ---
 
@@ -152,27 +153,30 @@ I started developing this project as a personal challenge when I was 18. My goal
 <details>
 <summary><strong>For Who Is This?</strong></summary>
 RapidRAW is for photographers who love to edit their photos in a <strong>clean, fast, and simple workflow</strong>. It prioritizes speed, a beautiful user interface, and powerful tools that let you achieve your creative color vision quickly.
-<br><br>
-RapidRAW is still in active development and isn't yet as polished as mature tools like Darktable, RawTherapee, or Adobe Lightroom®. Right now, the focus is on building a fast, enjoyable core editing experience. You may encounter bugs - if you do, please report them so I can fix them :) Your feedback really helps!
-<br><br>
 </details>
 <details>
 <summary><strong>Recent Changes</strong></summary>
 
+- **2026-10-24:** Rewrote dehaze with edge-aware haze estimation, added dual-illuminant RAW color matrices and gamut compression, improved denoise in shadows and highlights, and added arrow key grid navigation in the library
+- **2026-10-23:** Redesigned data management as a storage page with cache limits, rewrote noise reduction and sharpening, and fixed AI hangs on macOS
+- **2026-10-22:** Added split and side-by-side before/after compare modes, a global job tracker, AI face and text masks, new sky and foreground models, and non-destructive BM3D denoise
+- **2026-10-21:** Added GPU acceleration for AI models via DirectML and CoreML, and a background AI job queue that regenerates AI masks, depth maps and denoise on paste
+- **2026-10-20:** Added Immich integration thanks to @cl1x, non-destructive negative conversion, auto adjust strength levels, and color-preserving highlight reconstruction
+- **2026-10-19:** Optimized memory usage, GPU shaders and the preview pipeline for faster thumbnails, editing and exports
 - **2026-10-18:** Added non-destructive AI denoise with disk caching and seamless tile blending, updated Lensfun database, and optimized Linux RAW preview pipelines
 - **2026-10-17:** Added movable on-canvas center controls for vignette and centré adjustments, touch multi-selection mode for Android, and cleaned default-only sidecar file handling
 - **2026-10-16:** Parallelized RAW post-processing and pixel format conversion for faster image rendering
 - **2026-10-15:** Added auto-straighten powered by horizon and line segment detection, and added DPI settings for print exports
+
+<details>
+<summary><strong>Expand further</strong></summary>
+
 - **2026-10-13:** Added individual visibility toggles to every adjustment tool in the editor panel
 - **2026-10-12:** Added optional RAW baseline exposure and highlight preservation compensation
 - **2026-10-11:** Embed keywords, ratings, and color labels as standard XMP metadata during export, alongside improved RAW EXIF writing
 - **2026-10-10:** Added `{original_filename_number}` token support to library batch renaming
 - **2026-10-07:** Added 3D Relight effect with surface normal generation and on-canvas aiming shapes, alongside new Atmospheric Fog adjustment and staged preview caches
 - **2026-10-06:** Added AI-free mode, rewritten whites adjustment, and improved shadow and highlight recovery with mid-scale detail reinjection
-
-<details>
-<summary><strong>Expand further</strong></summary>
-
 - **2026-10-05:** Implemented log-space guided filter for edge-aware adjustments and integrated cloud API
 - **2026-10-04:** Added Kelvin white balance mode with area sampling, fine adjust mode for curves, pick/reject quick filters, and improved export presets
 - **2026-10-03:** Embed sRGB ICC profiles in exports, calculate HSL hue in perceptual color space & improve lens EXIF detection
@@ -615,7 +619,7 @@ Explore example edits processed entirely within RapidRAW. You can download the `
 
 <table width="100%">
   <tr>
-    <td width="25%" valign="top" align="center">
+    <td width="25%" valign="middle" align="center">
       <br>
       <img src="https://raw.githubusercontent.com/CyberTimon/RapidRAW/assets/.github/assets/portrait.jpg" alt="Timon Käch" width="100%" style="border-radius: 8px;">
       <br><br>
@@ -635,6 +639,9 @@ Explore example edits processed entirely within RapidRAW. You can download the `
       <p>
         The foundation is built on Rust for its safety and performance, and Tauri for its ability to create lightweight, cross-platform desktop apps with a web frontend. The entire image processing pipeline is offloaded to the GPU via WGPU and a custom WGSL shader, ensuring that even on complex edits with multiple masks, the UI remains fluid.
       </p>
+      <p>
+        Curious how it works under the hood? The <strong><a href="https://www.getrapidraw.com/docs/technical/pipeline">Technical Reference</a></strong> explains the whole pipeline and the math behind it, from RAW decoding, demosaicing and highlight reconstruction to every slider, the AI models and the depth effects, with formulas and example images.
+      </p>
       <br>
     </td>
   </tr>
@@ -648,8 +655,9 @@ Explore example edits processed entirely within RapidRAW. You can download the `
       <h4>Core Editing Engine</h4>
       <ul>
         <li><strong>GPU-Accelerated:</strong> Full 32-bit image processing pipeline written in WGSL for instant feedback.</li>
-        <li><strong>Layered Masking:</strong> AI subject, depth, sky, and foreground detection, combined with parametric color and luminance masks.</li>
-        <li><strong>Retouching Tools:</strong> Local Clone and Heal tools for dust and blemish removal.</li>
+        <li><strong>Layered Masking:</strong> AI subject, sky, foreground, depth, text prompt, and face part masks, combined with parametric color and luminance masks.</li>
+        <li><strong>Retouching Tools:</strong> Clone, Heal, Retouch, and Liquify tools for dust removal, skin smoothing, and reshaping.</li>
+        <li><strong>Noise Reduction:</strong> Non-destructive AI Denoise, classic BM3D denoise, and manual luma and color noise reduction.</li>
         <li><strong>Generative Edits:</strong> Remove or add elements using text prompts, powered by an optional AI backend.</li>
         <li><strong>Full RAW Support:</strong> Supports a wide range of RAW camera formats through rawler, with JPEG support included.</li>
         <li><strong>Non-Destructive Workflow:</strong> All edits are stored in a <code>.rrdata</code> sidecar file, leaving your original images untouched.</li>
@@ -660,11 +668,12 @@ Explore example edits processed entirely within RapidRAW. You can download the `
       <h4>Library & Workflow</h4>
       <ul>
         <li><strong>Image Library:</strong> Effortlessly manage your photo collection for a streamlined workflow.</li>
-        <li><strong>Culling View:</strong> Compare images side-by-side with star ratings, color labels, and metadata.</li>
+        <li><strong>Immich Integration:</strong> Browse, edit, and export photos on your Immich server, with edits synced across all your computers.</li>
+        <li><strong>Culling View:</strong> Compare images side-by-side with star ratings, pick/reject flags, color labels, and metadata.</li>
         <li><strong>Organization:</strong> Recursive folder view, virtual copies, color labels, star ratings, and custom tags.</li>
         <li><strong>File Operations:</strong> Import, copy, move, rename, and duplicate images/folders.</li>
         <li><strong>Filmstrip View:</strong> Quickly navigate between images in your current folder while editing.</li>
-        <li><strong>Batch Operations:</strong> Apply adjustments or export entire batches of images simultaneously.</li>
+        <li><strong>Batch Operations:</strong> Apply adjustments or export entire batches of images simultaneously, tracked in a background job queue.</li>
         <li><strong>EXIF Data & CLI:</strong> Full metadata viewer and headless CLI batch exporter for scripting/terminal use.</li>
         <li><strong>Camera Tethering:</strong> Shoot directly into RapidRAW with real-time Live View, remote camera controls and more.</li>
       </ul>
@@ -678,9 +687,10 @@ Explore example edits processed entirely within RapidRAW. You can download the `
         <li><strong>Tonal Controls:</strong> Exposure, Tone Mapping (including AgX!), Contrast, Highlights, Shadows, Whites, and Blacks.</li>
         <li><strong>Tone Curves:</strong> Full control over Luma/RGB and parametric curves.</li>
         <li><strong>Color Grading:</strong> Temperature, Tint, Vibrance, Saturation, color wheels, and a full HSL color mixer.</li>
-        <li><strong>Detail Enhancement:</strong> Sharpening, Clarity, Structure, and Noise Reduction (Luma & Color).</li>
-        <li><strong>Creative Effects:</strong> Lens Blur (Bokeh), LUTs, Dehaze, Vignette, Glow, Halation, Flares, and Film Grain.</li>
-        <li><strong>Transform Tools:</strong> Perspective correction, rotation, straightening, crop, and warping tools.</li>
+        <li><strong>Detail Enhancement:</strong> Sharpening, Clarity, Structure, and Dehaze.</li>
+        <li><strong>Creative Effects:</strong> Film emulations, LUTs, Vignette, Glow, Halation, Flares, and Film Grain.</li>
+        <li><strong>Spatial Effects:</strong> Depth-based Lens Blur, Relight with point, spot, and directional lights, and Fog.</li>
+        <li><strong>Transform Tools:</strong> Perspective correction, auto straighten, rotation, crop, and warping tools.</li>
       </ul>
     </td>
     <td valign="top" width="50%" style="border-top: 1px solid #444; padding-top: 12px;">
@@ -688,9 +698,11 @@ Explore example edits processed entirely within RapidRAW. You can download the `
       <ul>
         <li><strong>Preset System:</strong> Create, save, import, share, and adjust preset intensity.</li>
         <li><strong>Image Analytics:</strong> Real-time Vectorscope, Waveform, RGB Parade, and Histogram displays.</li>
-        <li><strong>Copy & Paste Settings:</strong> Quickly transfer adjustments and masks between images.</li>
+        <li><strong>Copy & Paste Settings:</strong> Quickly transfer adjustments and masks between images. AI masks are generated again for every image.</li>
+        <li><strong>Before / After Compare:</strong> Full original, split, and side-by-side compare modes.</li>
         <li><strong>Undo/Redo History:</strong> Robust history tracking for every edit step.</li>
-        <li><strong>Compositions & Merging:</strong> Bracketed HDR merging, seamless Panorama Stitcher, Collage Maker, and Film Negative Converter.</li>
+        <li><strong>Compositions & Merging:</strong> Bracketed HDR merging, Focus Stacking, seamless Panorama Stitcher, and Collage Maker.</li>
+        <li><strong>Film Negatives:</strong> Non-destructive negative conversion with color balance and print controls.</li>
         <li><strong>Flexible Exporting:</strong> Export to JPEG, PNG, WebP, AVIF, TIFF, JXL, or LUT formats with custom watermarking and EXIF retention.</li><br><br>
       </ul>
     </td>
@@ -731,7 +743,7 @@ RapidRAW relies on [dnglab / rawler](https://github.com/dnglab/dnglab) for RAW f
 | **Sigma**             | `.x3f`                         | Sigma Foveon Raw           |
 | **Sony**              | `.arw`, `.srf`, `.sr2`         | Sony Alpha Raw formats     |
 
-> **Note:** Is your camera's RAW file unsupported? Please open an issue directly with **[dnglab](https://github.com/dnglab/dnglab/issues)** to request RAW decoding support for your camera model. Once added there, support will be updated in RapidRAW.
+> **Note:** Is your camera's RAW file unsupported? Please open an issue directly with **[dnglab](https://github.com/dnglab/dnglab/issues)** to request RAW decoding support for your camera model and upload a CC-0 licensed sample set to **[RawDB](https://rawdb.dnglab.org)** (see [Contributing RAW samples](#contributing-raw-samples)). Once added there, support will be updated in RapidRAW.
 
 </details>
 
@@ -786,7 +798,7 @@ Here is an outlook on what is actively being developed and planned for the comin
 
 - **Astrophotography Stacking:** Implementing GPU-accelerated star alignment and stacking (mean, median, sigma-clipping) to merge multi-exposure night sky sequences into 32-bit linear composites.
 - **Bug Fixes & Stability:** Continuous memory optimization, resolving OS-specific crashes (such as Linux Wayland/WebKit edge cases), and refining GPU processing backend auto-selection for seamless performance across all platforms.
-- **Cloud AI Inpainting:** Launching the optional cloud generative AI integration to deliver high-quality object removal and generative replace without requiring local ComfyUI setups or heavy GPU hardware.
+- **RapidRAW Cloud:** Refining the newly launched cloud inpainting service based on early feedback, with a focus on speed and quality for large removals.
 - **Performance & Algorithm Refinements:** Further optimizing processing speed on older GPU architectures, refining Fujifilm X-Trans sensor demosaicing algorithms, and expanding UI responsiveness on mobile/Android devices.
 
 ## AI Strategy
@@ -799,13 +811,16 @@ I've designed RapidRAW's AI architecture with absolute flexibility, privacy, and
 
 ### 1. Built-in AI Tools (Local & Free)
 
-These features are integrated directly into RapidRAW and run entirely on your local machine using your CPU or GPU. They are fast, completely private, free, and require zero setup:
+These features are integrated directly into RapidRAW and run entirely on your local machine, accelerated by your GPU on Windows (DirectML) and macOS (CoreML) with an automatic CPU fallback. They are fast, completely private, free, and require zero setup:
 
 - **AI Masking:** Instantly detect and mask subjects, skies, foregrounds, and depth maps (powered by SAM 2, BiRefNet, SkyWater-Seg, and Depth Anything 3).
+- **AI Text & Face Masks:** Select anything by typing what you want, like "car" or "water", or pick individual face and body parts like skin, hair, eyes, or teeth (powered by EfficientSAM3 and MediaPipe).
+- **AI Denoise:** Non-destructive noise reduction using RawNIND for RAW files and NIND for other images.
+- **Spatial Effects:** Depth and surface normal estimation for Lens Blur, Relight, and Fog (powered by Depth Anything 3 and MoGe-3).
 - **Automatic Tagging:** The image library is automatically indexed with keywords using a local CLIP model for effortless search.
 - **Natural-Language Search:** Turn on AI search (the sparkles button in the library search bar) and describe a photo, like "dog on a beach" or "red car at night", in any of many languages. A local SigLIP 2 model ranks the folder by relevance, running on the GPU on Apple Silicon.
 - **Smart Culling:** Groups bursts and near-duplicates by what is in the frame (with the same SigLIP 2 model) and by capture time, picks the sharpest, best-exposed shot of each group, and flags out-of-focus or motion-blurred photos by measuring how wide their sharpest edges are, which a noisy high-ISO photo cannot fool.
-- **Simple Generative Replace:** A lightweight, CPU-based inpainting tool (via LaMa) for removing sensor dust, blemishes, and small distractions.
+- **Simple Generative Replace:** A lightweight inpainting tool (via LaMa) for removing sensor dust, blemishes, and small distractions.
 
 ### 2. Self-Hosted Integration with ComfyUI (Local & Free)
 
@@ -821,7 +836,7 @@ For users with a capable GPU who want maximum control over generative features, 
 
 To be clear: **core software functionality is never locked behind a paywall.** All features remain free if you use built-in tools or choose to self-host.
 
-However, not everyone has access to a powerful GPU or wants the technical overhead of configuring and maintaining a local ComfyUI server. For users who prefer seamless convenience, RapidRAW offers an optional **$TBD/month cloud subscription**:
+However, not everyone has access to a powerful GPU or wants the technical overhead of configuring and maintaining a local ComfyUI server. For users who prefer seamless convenience, RapidRAW offers an optional **[RapidRAW Cloud](https://www.getrapidraw.com/cloud) subscription for $14/month**:
 
 - **Turnkey Setup:** No local server or model weights to download. Just log in and run high-end inpainting/generative tools immediately.
 - **Support Indie Development:** Subscribing is the best way to directly fund continuous development, updates, and maintenance.
@@ -840,7 +855,7 @@ For purists, contest photographers, or those with ethical or privacy-related obj
 
 | Feature      | Built-in AI (Free)             | Self-Hosted (ComfyUI)               | Optional Cloud Service  | AI-Free Mode                            |
 | :----------- | :----------------------------- | :---------------------------------- | :---------------------- | :-------------------------------------- |
-| **Cost**     | Free, included                 | Free (requires your own GPU)        | $TBD / month            | Free, included                          |
+| **Cost**     | Free, included                 | Free (requires your own GPU)        | $14 / month             | Free, included                          |
 | **Setup**    | None                           | Manual ComfyUI / AI Connector setup | None (Just log in)      | Single switch in Settings               |
 | **Privacy**  | 100% Local execution           | 100% Local / Self-hosted            | Processed via Cloud API | 100% Local (Zero AI execution)          |
 | **Use Case** | Everyday workflow acceleration | Maximum control for power users     | Maximum convenience     | Traditional editing & contest workflows |
@@ -1062,6 +1077,7 @@ rapidraw export /path/to/photos --output /path/to/output_dir --auto
 
 The community has created dedicated standalone companion tools designed to integrate directly with RapidRAW's non-destructive editing workflow and `.rrdata` sidecars:
 
+- **[Immich](https://immich.app)**: A self-hosted photo and video library. RapidRAW connects directly to your Immich server (2.5 or newer) to browse your albums and timeline, edit photos, and export back to Immich. Your edits are stored with each photo on the server, so they stay in sync across all your computers.
 - **[RapidTimelapse](https://github.com/crispin81/RapidTimelapse)** by [@crispin81](https://github.com/crispin81): An LRTimelapse-style keyframe ramping and deflicker utility. Edit key turning-point frames in RapidRAW, mark them with 5 stars, and RapidTimelapse will smoothly calculate and write interpolated adjustments straight to intermediate `.rrdata` sidecars.
 - **[RapidReady](https://github.com/on370/rapidready)** by [@on370](https://github.com/on370) ([Website](https://rapidready.de/)): A high-speed digital asset manager (DAM), ingest, and culling tool. It offers zero-latency browsing through instant embedded preview extraction, Difference-of-Gradients focus peaking, GPS geotagging, virtual albums, and bidirectional rating and metadata synchronization with RapidRAW.
 
@@ -1122,9 +1138,24 @@ See [#306](https://github.com/CyberTimon/RapidRAW/issues/306) for more informati
 
 I’m really grateful for any contributions you make to RapidRAW! Whether you’re reporting a bug, suggesting a new feature, or submitting a pull request - your input helps shape the project and makes it better for everyone. Don’t hesitate to open an issue or share your ideas.
 
+Before diving into the code, the **[Technical Reference](https://www.getrapidraw.com/docs/technical/pipeline)** is a good starting point. It describes every stage of the processing pipeline, which source files implement it, and how the individual algorithms work.
+
 ### Image format issues
 
-If your camera’s RAW files aren’t supported, please open a issue here first: [rawler issues](https://github.com/dnglab/dnglab/issues). Once support is added in rawler, create a issue for RapidRAW so I can update the packages and keep everything in sync.
+If your camera’s RAW files aren’t supported, please open an issue here first: [rawler issues](https://github.com/dnglab/dnglab/issues). Once support is added in rawler, create an issue for RapidRAW so I can update the packages and keep everything in sync.
+
+### Contributing RAW samples
+
+New cameras and RAW formats can only be added to rawler when a full set of **CC-0 licensed** sample files exists. Without samples there is no test case, and without a test case support can't be merged. Files shared via Google Drive or similar services can't be used.
+
+If you want support for your camera or smartphone, please help by uploading a sample set to **[RawDB](https://rawdb.dnglab.org)** as early as possible:
+
+- Shoot a properly exposed daylight scene with many colors (landscape with trees, fruit basket, colorful houses). No people, cars or other private property, and no color checker cards.
+- Cover the modes your camera supports (e.g. ISO levels, compression, bit depth, crop and RAW sizes). The required set differs per manufacturer.
+- Give your files descriptive names like `CANON_5DMK3_ISO_100_SRAW.CR2` instead of `IMG_0001.CR2`.
+- By uploading, you confirm that you are the copyright owner and license the samples under CC-0.
+
+Please read the full **[sample guidelines](https://github.com/dnglab/dnglab/blob/main/CONTRIBUTE_SAMPLES.md#important-notes-on-how-to-properly-shoot-samples)** before shooting, and link your RawDB upload in the dnglab issue.
 
 ## Special Thanks
 
@@ -1136,6 +1167,8 @@ A huge thank you to the following projects and tools that were very important in
 - **[LaMa](https://github.com/advimman/lama):** For the powerful & simple image inpainting model, which enables content-aware fill and object removal.
 - **[SAM 2](https://github.com/facebookresearch/sam2):** For providing the foundation model used for the AI subject detection capabilities.
 - **[SkyWater-Seg](https://huggingface.co/Realcat/skywater_seg):** For the sky segmentation model that powers the AI sky detection capabilities.
+- **[EfficientSAM3](https://github.com/SimonZeng7108/efficientsam3):** For the efficient promptable segmentation model distilled from SAM 3 that powers the AI text and face masks.
+- **[MediaPipe](https://github.com/google-ai-edge/mediapipe):** For the fast face landmark and segmentation models that power the AI face masks.
 - **[SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224):** For Google's Apache-2.0 multilingual image-text model that powers natural-language photo search.
 - **[BiRefNet](https://github.com/ZhengPeng7/BiRefNet):** For the high-accuracy segmentation model that powers the AI foreground detection capabilities.
 - **[Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3):** For ByteDance Seed's Apache-2.0 monocular depth estimation model that enables the AI depth masking capabilities.

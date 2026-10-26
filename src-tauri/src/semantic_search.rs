@@ -202,10 +202,13 @@ fn select_matches(mut scored: Vec<(String, f32)>) -> Vec<SemanticMatch> {
         .collect()
 }
 
-fn index_keys(paths: &[String]) -> Vec<Option<String>> {
+fn index_keys(app_handle: &AppHandle, paths: &[String]) -> Vec<Option<String>> {
+    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
     paths
         .par_iter()
-        .map(|path| file_management::get_cache_key_hash(path).filter(|k| k.len() == KEY_LEN))
+        .map(|path| {
+            file_management::get_cache_key_hash(path, &settings).filter(|k| k.len() == KEY_LEN)
+        })
         .collect()
 }
 
@@ -287,7 +290,7 @@ pub fn image_embeddings(
     paths: &[String],
     progress: &dyn Fn(usize, usize),
 ) -> Result<Vec<Option<Vec<f32>>>> {
-    let keys = index_keys(paths);
+    let keys = index_keys(app_handle, paths);
     ensure_indexed(app_handle, models, paths, &keys, progress, &|| false)?;
     let index = INDEX.lock().unwrap();
     let entries = &index
@@ -312,7 +315,7 @@ fn search(
 ) -> Result<Vec<SemanticMatch>> {
     let started = Instant::now();
     let text = embed_text(models, query)?;
-    let keys = index_keys(&paths);
+    let keys = index_keys(app_handle, &paths);
     ensure_indexed(
         app_handle,
         models,

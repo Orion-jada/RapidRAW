@@ -7,7 +7,7 @@ import clsx from 'clsx';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useEditorStore } from '../../store/useEditorStore';
-import { useProcessStore } from '../../store/useProcessStore';
+import { selectAiModelDownloadStatus, useProcessStore } from '../../store/useProcessStore';
 import {
   colorizeDepth,
   drawOriented,
@@ -77,7 +77,7 @@ export default function GeometryViewer({ isOpen, onClose }: GeometryViewerProps)
   const orientationSteps = useEditorStore((s) => s.adjustments.orientationSteps);
   const flipHorizontal = useEditorStore((s) => s.adjustments.flipHorizontal);
   const flipVertical = useEditorStore((s) => s.adjustments.flipVertical);
-  const aiModelDownloadStatus = useProcessStore((s) => s.aiModelDownloadStatus);
+  const aiModelDownloadStatus = useProcessStore(selectAiModelDownloadStatus);
 
   const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
@@ -135,6 +135,7 @@ export default function GeometryViewer({ isOpen, onClose }: GeometryViewerProps)
     if (!path) return;
     setDepth({ loading: true });
     invoke<string>('generate_full_image_depth_map', { jsAdjustments: useEditorStore.getState().adjustments })
+      .then((reference) => invoke<string>('effect_map_data_url', { reference }))
       .then((url) => {
         if (cachedPath === path) cachedDepth = url;
         if (openPathRef.current === path) setDepth({ value: url, loading: false });
@@ -190,8 +191,7 @@ export default function GeometryViewer({ isOpen, onClose }: GeometryViewerProps)
       }
       drawOriented(canvas, source, width, height, orientation);
     };
-    // The backend marks maps of the uncropped photo with a parameter images don't need.
-    image.src = depth.value.replace(';space=source', '');
+    image.src = depth.value;
   }, [tab, depth.value, colorDepth, orientation, isMounted]);
 
   useEffect(() => {

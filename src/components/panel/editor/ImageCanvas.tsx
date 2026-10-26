@@ -3,6 +3,7 @@ import ReactCrop from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Stage, Layer, Ellipse, Line, Transformer, Group, Circle, Rect, Arrow } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
+import type Konva from 'konva';
 import { PercentCrop, Crop } from 'react-image-crop';
 import { Stamp, Bandage, Spline, BrushCleaning } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
@@ -95,7 +96,7 @@ interface ImageCanvasProps {
   cursorStyle: string;
   isMaxZoom?: boolean;
   liveRotation?: number | null;
-  transformState: { scale: number; positionX: number; positionY: number };
+  transformScale: number;
   hasRenderedFirstFrame: boolean;
 }
 
@@ -1686,7 +1687,7 @@ const ImageCanvas = memo(
     cursorStyle,
     isMaxZoom,
     liveRotation,
-    transformState,
+    transformScale,
     hasRenderedFirstFrame,
   }: ImageCanvasProps) => {
     const interactivePatch = useEditorStore((state) => state.interactivePatch);
@@ -1725,7 +1726,11 @@ const ImageCanvas = memo(
     const [previewBox, setPreviewBox] = useState<{ start: Coord; end: Coord } | null>(null);
     const activeStrokeIndex = useRef<number | null>(null);
 
-    const [cursorPreview, setCursorPreview] = useState<CursorPreview>({ x: 0, y: 0, visible: false });
+    const [isCursorPreviewVisible, setIsCursorPreviewVisible] = useState(false);
+    const cursorPreviewPosRef = useRef({ x: 0, y: 0 });
+    const cursorPreviewRef = useRef<Konva.Circle>(null);
+    // Where the next polygon point would go, for the line drawn to it from the last point.
+    const [polygonCursor, setPolygonCursor] = useState<Coord | null>(null);
     const [wbHover, setWbHover] = useState<CursorPreview>({ x: 0, y: 0, visible: false });
     const wbDragRef = useRef<WbDrag | null>(null);
     const [wbBox, setWbBox] = useState<WbDrag | null>(null);
@@ -1806,13 +1811,13 @@ const ImageCanvas = memo(
     const groupOffsetX = paddingX;
     const groupOffsetY = paddingY;
 
-    const [settledScale, setSettledScale] = useState(transformState.scale);
+    const [settledScale, setSettledScale] = useState(transformScale);
     useEffect(() => {
       const timer = setTimeout(() => {
-        setSettledScale(transformState.scale);
+        setSettledScale(transformScale);
       }, 150);
       return () => clearTimeout(timer);
-    }, [transformState.scale]);
+    }, [transformScale]);
 
     const maxDimension = Math.max(stageWidth, stageHeight, 1);
     const maxSafeScale = Math.max(1, Math.min(settledScale, 4092 / maxDimension));
@@ -1980,7 +1985,7 @@ const ImageCanvas = memo(
         : activeCrop.y
       : 0;
 
-    const effectiveZoomScale = transformState.scale > 0 ? transformState.scale : 1;
+    const effectiveZoomScale = transformScale > 0 ? transformScale : 1;
     const brushStageSize = (brushSettings?.size ?? 0) / effectiveZoomScale;
     const brushImageSpaceSize = brushStageSize / (imageRenderSize.scale || 1);
 
@@ -3027,10 +3032,17 @@ const ImageCanvas = memo(
 
         if (isToolActive) {
           if (pos) {
-            setCursorPreview({ x: pos.x, y: pos.y, visible: true });
+            cursorPreviewPosRef.current = pos;
+            setIsCursorPreviewVisible(true);
+            const cursorNode = cursorPreviewRef.current;
+            if (cursorNode) {
+              cursorNode.position(pos);
+              cursorNode.getLayer()?.batchDraw();
+            }
           } else {
-            setCursorPreview((p: CursorPreview) => ({ ...p, visible: false }));
+            setIsCursorPreviewVisible(false);
           }
+          if (isPolygonDrawing) setPolygonCursor(pos ?? null);
         }
 
         if (!isDrawing.current || !isToolActive) {
@@ -3214,6 +3226,7 @@ const ImageCanvas = memo(
         isToolActive,
         isWbPickerActive,
         isInitialDrawing,
+        isPolygonDrawing,
         activeMaskId,
         activeAiSubMaskId,
         updateSubMask,
@@ -3495,12 +3508,12 @@ const ImageCanvas = memo(
 
     const handleMouseEnter = useCallback(() => {
       if (isToolActive) {
-        setCursorPreview((p: CursorPreview) => ({ ...p, visible: true }));
+        setIsCursorPreviewVisible(true);
       }
     }, [isToolActive]);
 
     const handleMouseLeave = useCallback(() => {
-      setCursorPreview((p: CursorPreview) => ({ ...p, visible: false }));
+      setIsCursorPreviewVisible(false);
       if (!wbDragRef.current) {
         resetWbSample();
       }
@@ -3983,13 +3996,13 @@ const ImageCanvas = memo(
                             );
                           })}
 
-                        {isPolygonDrawing && cursorPreview.visible && polygonPoints.length > 0 && (
+                        {isPolygonDrawing && isCursorPreviewVisible && polygonCursor && polygonPoints.length > 0 && (
                           <Line
                             points={[
                               (polygonPoints[polygonPoints.length - 1].x - cropX) * imageRenderSize.scale,
                               (polygonPoints[polygonPoints.length - 1].y - cropY) * imageRenderSize.scale,
-                              cursorPreview.x,
-                              cursorPreview.y,
+                              polygonCursor.x,
+                              polygonCursor.y,
                               ...(polygonPoints.length >= 2
                                 ? [
                                     (polygonPoints[0].x - cropX) * imageRenderSize.scale,
@@ -4068,7 +4081,7 @@ const ImageCanvas = memo(
                           />
                         )}
                         {isBrushActive &&
-                          cursorPreview.visible &&
+                          isCursorPreviewVisible &&
                           (!isCloneOrHealActive ||
                             (activeSubMask?.parameters?.sourceX !== undefined && !isCtrlPressed)) && (
                             <Circle
@@ -4084,8 +4097,9 @@ const ImageCanvas = memo(
                               listening={false}
                               perfectDrawEnabled={false}
                               radius={brushCursorPreview.radius}
-                              x={cursorPreview.x}
-                              y={cursorPreview.y}
+                              ref={cursorPreviewRef}
+                              x={cursorPreviewPosRef.current.x}
+                              y={cursorPreviewPosRef.current.y}
                             />
                           )}
                       </Group>

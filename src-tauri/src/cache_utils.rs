@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::app_settings::AppSettings;
 use half::f16;
 use half::slice::HalfFloatSliceExt;
 use image::{DynamicImage, GenericImageView, Rgb32FImage, Rgba32FImage};
@@ -7,7 +8,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::SystemTime;
 
 pub const GEOMETRY_KEYS: &[&str] = &[
@@ -91,7 +92,11 @@ fn hash_ai_denoise(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) 
     let enabled = crate::ai_denoise::is_enabled(adjustments);
     enabled.hash(hasher);
     if enabled {
-        hash_effect_keys(adjustments, &["aiDenoiseAmount", "aiDenoiseDetail"], hasher);
+        hash_effect_keys(
+            adjustments,
+            &["aiDenoiseMethod", "aiDenoiseAmount", "aiDenoiseDetail"],
+            hasher,
+        );
         crate::ai_denoise::cache_epoch().hash(hasher);
     }
 }
@@ -482,27 +487,51 @@ impl CachedImage {
     }
 }
 
-/// Size and modification time of a file, to tell when a cached decode of it has gone stale.
-pub type FileStamp = (u64, SystemTime);
-
-pub fn file_stamp(path: &Path) -> Option<FileStamp> {
-    let metadata = std::fs::metadata(path).ok()?;
-    Some((metadata.len(), metadata.modified().ok()?))
+/// A path alone goes stale: tethering reuses file names and raw settings change the pixels.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodeFingerprint {
+    len: u64,
+    modified: Option<SystemTime>,
+    settings_hash: u64,
 }
 
-struct DecodedImage {
+impl DecodeFingerprint {
+    pub fn for_file(path: &Path, settings: &AppSettings) -> Option<Self> {
+        let metadata = std::fs::metadata(path).ok()?;
+        let mut hasher = DefaultHasher::new();
+        settings
+            .raw_highlight_compression
+            .map(f32::to_bits)
+            .hash(&mut hasher);
+        settings.linear_raw_mode.hash(&mut hasher);
+        settings
+            .raw_preprocessing_color_nr
+            .map(f32::to_bits)
+            .hash(&mut hasher);
+        settings
+            .raw_preprocessing_sharpening
+            .map(f32::to_bits)
+            .hash(&mut hasher);
+        settings.apply_preprocessing_to_non_raws.hash(&mut hasher);
+        settings.use_apple_raw9.hash(&mut hasher);
+        Some(Self {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            settings_hash: hasher.finish(),
+        })
+    }
+}
+
+struct DecodedEntry {
     path: String,
-    stamp: Option<FileStamp>,
+    fingerprint: DecodeFingerprint,
     image: CachedImage,
     exif: HashMap<String, String>,
 }
 
-/// Recently decoded images by path. An entry only counts while the file on disk still has the
-/// stamp it was decoded with, so a file overwritten in place (a re-saved denoise, an export to
-/// the same name) is decoded again rather than shown as it was.
 pub struct DecodedImageCache {
     capacity: usize,
-    items: Vec<DecodedImage>,
+    items: Vec<DecodedEntry>,
 }
 
 impl DecodedImageCache {
@@ -518,43 +547,33 @@ impl DecodedImageCache {
         self.evict();
     }
 
-    /// Whether `get` would find the image, without expanding it.
-    pub fn contains(&self, path: &str, stamp: Option<FileStamp>) -> bool {
-        stamp.is_some()
-            && self
-                .items
-                .iter()
-                .any(|item| item.path == path && item.stamp == stamp)
+    pub fn contains(&self, path: &str, fingerprint: &DecodeFingerprint) -> bool {
+        self.items
+            .iter()
+            .any(|e| e.path == path && e.fingerprint == *fingerprint)
     }
 
     pub fn get(
         &mut self,
         path: &str,
-        stamp: Option<FileStamp>,
+        fingerprint: &DecodeFingerprint,
     ) -> Option<(Arc<DynamicImage>, HashMap<String, String>)> {
-        let pos = self.items.iter().position(|item| item.path == path)?;
-        let DecodedImage {
-            path,
-            stamp: cached_stamp,
-            image: cached,
-            exif,
-        } = self.items.remove(pos);
-        if stamp.is_none() || cached_stamp != stamp {
+        let pos = self.items.iter().position(|e| e.path == path)?;
+        let entry = self.items.remove(pos);
+        if entry.fingerprint != *fingerprint {
             return None;
         }
-        let image = cached.expand();
-        drop(cached);
-        self.items.push(DecodedImage {
-            path,
-            stamp,
+        let image = entry.image.expand();
+        let exif = entry.exif.clone();
+        self.items.push(DecodedEntry {
             image: CachedImage::Full(Arc::clone(&image)),
-            exif: exif.clone(),
+            ..entry
         });
         Some((image, exif))
     }
 
     pub fn compact_except(&mut self, keep_path: &str) {
-        if let Some(pos) = self.items.iter().position(|item| item.path == keep_path) {
+        if let Some(pos) = self.items.iter().position(|e| e.path == keep_path) {
             let item = self.items.remove(pos);
             self.items.push(item);
         }
@@ -574,16 +593,16 @@ impl DecodedImageCache {
     pub fn insert(
         &mut self,
         path: String,
-        stamp: Option<FileStamp>,
+        fingerprint: DecodeFingerprint,
         image: Arc<DynamicImage>,
         exif: HashMap<String, String>,
     ) {
-        if let Some(pos) = self.items.iter().position(|item| item.path == path) {
+        if let Some(pos) = self.items.iter().position(|e| e.path == path) {
             self.items.remove(pos);
         }
-        self.items.push(DecodedImage {
+        self.items.push(DecodedEntry {
             path,
-            stamp,
+            fingerprint,
             image: CachedImage::Full(image),
             exif,
         });
@@ -598,12 +617,73 @@ impl DecodedImageCache {
             && self
                 .items
                 .iter()
-                .map(|item| item.image.byte_size())
+                .map(|e| e.image.byte_size())
                 .sum::<usize>()
                 > *DECODED_CACHE_BUDGET_BYTES
         {
             self.items.remove(0);
         }
+    }
+}
+
+/// Lets concurrent callers share one decode of a file instead of each decoding it.
+#[derive(Default)]
+pub struct DecodeFlights {
+    inflight: Mutex<HashMap<String, Arc<Flight>>>,
+}
+
+#[derive(Default)]
+pub struct Flight {
+    done: Mutex<bool>,
+    finished: Condvar,
+}
+
+impl Flight {
+    pub fn wait(&self) {
+        let mut done = self.done.lock().unwrap_or_else(|e| e.into_inner());
+        while !*done {
+            done = self.finished.wait(done).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
+pub enum FlightRole<'a> {
+    Leader(FlightGuard<'a>),
+    Follower(Arc<Flight>),
+}
+
+/// Wakes waiters when dropped, including on error or panic.
+pub struct FlightGuard<'a> {
+    flights: &'a DecodeFlights,
+    path: String,
+    flight: Arc<Flight>,
+}
+
+impl Drop for FlightGuard<'_> {
+    fn drop(&mut self) {
+        self.flights
+            .inflight
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.path);
+        *self.flight.done.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.flight.finished.notify_all();
+    }
+}
+
+impl DecodeFlights {
+    pub fn begin(&self, path: &str) -> FlightRole<'_> {
+        let mut inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(flight) = inflight.get(path) {
+            return FlightRole::Follower(Arc::clone(flight));
+        }
+        let flight = Arc::new(Flight::default());
+        inflight.insert(path.to_string(), Arc::clone(&flight));
+        FlightRole::Leader(FlightGuard {
+            flights: self,
+            path: path.to_string(),
+            flight,
+        })
     }
 }
 
@@ -669,6 +749,10 @@ mod decoded_image_cache_tests {
         )))
     }
 
+    fn stamp(file: &Path) -> DecodeFingerprint {
+        DecodeFingerprint::for_file(file, &AppSettings::default()).expect("readable file")
+    }
+
     fn value(hit: Option<(Arc<DynamicImage>, HashMap<String, String>)>) -> Option<u8> {
         hit.map(|(img, _)| img.to_luma8().get_pixel(0, 0)[0])
     }
@@ -682,26 +766,21 @@ mod decoded_image_cache_tests {
 
         std::fs::write(&file, b"first save").unwrap();
         let mut cache = DecodedImageCache::new(5);
-        cache.insert(key.clone(), file_stamp(&file), image(1), HashMap::new());
-        assert_eq!(value(cache.get(&key, file_stamp(&file))), Some(1));
+        cache.insert(key.clone(), stamp(&file), image(1), HashMap::new());
+        assert_eq!(value(cache.get(&key, &stamp(&file))), Some(1));
 
         // Same size, new contents: only the modification time differs.
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(&file, b"later save").unwrap();
-        assert_eq!(value(cache.get(&key, file_stamp(&file))), None);
+        assert_eq!(value(cache.get(&key, &stamp(&file))), None);
         assert_eq!(
-            value(cache.get(&key, file_stamp(&file))),
+            value(cache.get(&key, &stamp(&file))),
             None,
             "stale entry is dropped"
         );
 
-        cache.insert(key.clone(), file_stamp(&file), image(2), HashMap::new());
-        assert_eq!(value(cache.get(&key, file_stamp(&file))), Some(2));
-        assert_eq!(
-            value(cache.get(&key, None)),
-            None,
-            "a file that can't be read never hits"
-        );
+        cache.insert(key.clone(), stamp(&file), image(2), HashMap::new());
+        assert_eq!(value(cache.get(&key, &stamp(&file))), Some(2));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -721,17 +800,12 @@ mod decoded_image_cache_tests {
             image::Rgb([0.25, 0.5, 0.75]),
         ));
         let mut cache = DecodedImageCache::new(5);
-        cache.insert(
-            key.clone(),
-            file_stamp(&file),
-            Arc::new(photo),
-            HashMap::new(),
-        );
+        cache.insert(key.clone(), stamp(&file), Arc::new(photo), HashMap::new());
         cache.compact_except("another photo");
         assert!(matches!(cache.items[0].image, CachedImage::Half { .. }));
 
-        assert!(cache.contains(&key, file_stamp(&file)));
-        let (restored, _) = cache.get(&key, file_stamp(&file)).expect("still cached");
+        assert!(cache.contains(&key, &stamp(&file)));
+        let (restored, _) = cache.get(&key, &stamp(&file)).expect("still cached");
         assert_eq!(
             restored.as_rgb32f().unwrap().get_pixel(1, 1).0,
             [0.25, 0.5, 0.75]
