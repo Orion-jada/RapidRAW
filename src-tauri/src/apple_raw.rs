@@ -208,7 +208,7 @@ mod imp {
                 }
             }
 
-            for px in buf.chunks_exact_mut(4) {
+            for px in buf.as_chunks_mut::<4>().0 {
                 px[0] = (px[0] * RAW9_EXPOSURE_GAIN).clamp(0.0, MAX_LINEAR_VALUE);
                 px[1] = (px[1] * RAW9_EXPOSURE_GAIN).clamp(0.0, MAX_LINEAR_VALUE);
                 px[2] = (px[2] * RAW9_EXPOSURE_GAIN).clamp(0.0, MAX_LINEAR_VALUE);

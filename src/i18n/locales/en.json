@@ -56,6 +56,55 @@
         "reds": "Reds",
         "yellows": "Yellows"
       },
+      "monochrome": {
+        "badge": "B&W",
+        "balance": "Balance",
+        "blackWhite": "Black & White",
+        "film": "Film",
+        "filmDescriptions": {
+          "balanced": "Even sensitivity across colors, with lighter reds and skin",
+          "extendedRed": "Red-sensitive film with luminous skin and darker skies",
+          "infrared": "Glowing foliage and near-black skies",
+          "neutral": "Matches the perceived brightness of each color",
+          "orthoPanchromatic": "Slightly darker reds with crisp greens",
+          "orthochromatic": "Blind to red, with dark reds and bright skies",
+          "panchromatic": "Classic film response with lighter blue skies"
+        },
+        "films": {
+          "balanced": "Balanced",
+          "extendedRed": "Extended Red",
+          "infrared": "Infrared",
+          "neutral": "Neutral",
+          "orthoPanchromatic": "Ortho-Pan",
+          "orthochromatic": "Orthochromatic",
+          "panchromatic": "Panchromatic"
+        },
+        "filter": "Filter",
+        "filters": {
+          "blue": "Blue",
+          "green": "Green",
+          "none": "None",
+          "orange": "Orange",
+          "red": "Red",
+          "yellow": "Yellow"
+        },
+        "highlights": "Highlights",
+        "hue": "Hue",
+        "mix": "B&W Mix",
+        "saturation": "Saturation",
+        "shadows": "Shadows",
+        "strength": "Strength",
+        "toning": "Toning",
+        "tonings": {
+          "cyanotype": "Cyanotype",
+          "gold": "Gold",
+          "none": "None",
+          "platinum": "Platinum",
+          "selenium": "Selenium",
+          "sepia": "Sepia",
+          "split": "Split Tone"
+        }
+      },
       "presence": "Presence",
       "saturation": "Saturation",
       "temperature": "Temperature",
@@ -227,8 +276,10 @@
       "autoLensCorrection": "Auto Lens Correction",
       "autoStraighten": "Auto Straighten",
       "cancel": "Cancel",
+      "closeViewer": "Close second window",
       "colorLabel": "Color Label",
       "confirmReset": "Confirm Reset",
+      "convertBlackWhite": "Convert to Black & White",
       "convertNegative": "Convert Negative",
       "copyAdjustments": "Copy Adjustments",
       "cullImage": "Auto Cull",
@@ -242,12 +293,14 @@
       "mergeHdr": "Merge to HDR",
       "noLabel": "No Label",
       "noRating": "No Rating",
+      "openViewer": "Open in second window",
       "pasteAdjustments": "Paste Adjustments",
       "productivity": "Productivity",
       "rating": "Rating",
       "ratingLabel_one": "{{count}} Star",
       "ratingLabel_other": "{{count}} Stars",
       "redo": "Redo",
+      "removeBlackWhite": "Remove Black & White",
       "removeDenoise": "Remove Denoise",
       "saveDenoisedCopy": "Save Denoised Copy…",
       "removeNegativeConversion": "Remove Negative Conversion",
@@ -467,7 +520,9 @@
         "quickErase": "Quick Erase {{count}}",
         "quickErase_one": "Quick Erase {{count}}",
         "quickErase_other": "Quick Erase {{count}}",
-        "retouch": "Retouch {{count}}"
+        "retouch": "Retouch {{count}}",
+        "retouch_one": "Retouch {{count}}",
+        "retouch_other": "Retouch {{count}}"
       },
       "recalculateDepth": "Recalculate depth",
       "recalculateDepthTooltip": "Calculate the depth map again with the current AI model",
@@ -876,6 +931,10 @@
         "undo": "Undo (Ctrl+Z) or History (Right-click)"
       },
       "vc": "VC"
+    },
+    "viewer": {
+      "openFailed": "Could not open the second window: {{error}}",
+      "windowTitle": "RapidRAW Viewer"
     }
   },
   "export": {
@@ -1020,6 +1079,10 @@
       "title": "Edits not in Immich yet"
     },
     "export": {
+      "newAlbum": "New album…",
+      "newAlbumName": "Album name",
+      "createAlbum": "Create",
+      "newAlbumFailed": "Could not create the album: {{error}}",
       "album": "Album",
       "destination": "Immich",
       "noAlbum": "No album",
@@ -1028,16 +1091,19 @@
       "withOriginalDesc": "For images from a local folder: the original is uploaded with its edits and the export is stacked on top of it. Images from Immich are always stacked on their original."
     },
     "section": {
+      "albums": "Albums",
       "empty": "No albums on the server.",
       "error": "Immich is not reachable.",
       "loading": "Loading albums…",
       "refresh": "Refresh albums",
       "timeline": "Timeline",
-      "title": "Immich"
+      "title": "Immich",
+      "unassigned": "In no album",
+      "unassignedHint": "Drop images here to upload them without adding them to an album."
     },
     "settings": {
       "apiKey": "API key",
-      "apiKeyDesc": "Create one in Immich under Account Settings → API Keys with these permissions: album.read, albumAsset.create, albumAsset.delete, asset.read, asset.view, asset.download, asset.upload, asset.update, asset.delete, stack.read, stack.create and user.read.",
+      "apiKeyDesc": "Create one in Immich under Account Settings → API Keys with these permissions: album.read, album.create, albumAsset.create, albumAsset.delete, asset.read, asset.view, asset.download, asset.upload, asset.update, asset.delete, stack.read, stack.create and user.read.",
       "connected": "Connected as {{user}} (Immich {{version}})",
       "description": "Browse the photos of your Immich server in the library and edit them directly. Originals are downloaded when you open them, and your edits are saved in Immich, so they look the same on every computer.",
       "keyInFile": "Stored in a file only you can read: no credential store is available. On KDE, turn on the Secret Service interface in the KDE Wallet settings and save again.",
@@ -1059,8 +1125,12 @@
       "downloadFailed": "Could not download from Immich: {{error}}",
       "editsConflict": "{{fileName}} was also edited on another computer. Your edits stay, and the other version is kept as a virtual copy.",
       "offline": "Immich is not reachable. Your edits are kept here and sent as soon as it's back.",
+      "transferFailed": "Not added to Immich: {{number}} ({{error}})",
+      "transferred": "Added to Immich: {{number}}",
+      "transferring": "Adding to Immich… {{current}}/{{total}}",
       "trashFailed": "Could not move to Immich's trash: {{error}}",
-      "uploaded": "Uploaded to Immich: {{number}}"
+      "uploaded": "Uploaded to Immich: {{number}}",
+      "uploadKeptCopy": "{{fileName}} is already in Immich with other edits. Those stay, and your edits are kept as a virtual copy."
     }
   },
   "library": {
@@ -1383,6 +1453,11 @@
       "goHome": "Go to Home",
       "importImages": "Import Images",
       "select": "Select"
+    },
+    "viewMode": {
+      "culling": "Culling View",
+      "grid": "Grid View",
+      "list": "List View"
     }
   },
   "masks": {
@@ -1464,6 +1539,7 @@
       "descReplace": "Overwrites all selected settings, resetting the rest to their defaults.",
       "groups": {
         "aiDenoise": "AI Denoise",
+        "blackWhite": "Black & White",
         "chromaticAberration": "Chromatic Aberration",
         "clarityDehaze": "Clarity & Dehaze",
         "colorCalibration": "Color Calibration",
@@ -1866,6 +1942,8 @@
       "folderImageCountsDesc": "Show the number of images inside folders when hovering over the folder tree.",
       "font": "Font",
       "fontDesc": "Change the application font.",
+      "hideCollapsedPanels": "Hide Collapsed Panels",
+      "hideCollapsedPanelsDesc": "Collapsed side panels hide completely instead of leaving a narrow strip. Reopen them from the bottom bar or with their keyboard shortcuts.",
       "nativeTitlebar": "Native Titlebar",
       "nativeTitlebarDesc": "Use your system's default window titlebar instead of RapidRAW's custom one.",
       "neutralGreyCanvas": "Neutral Grey Canvas",
@@ -1919,6 +1997,7 @@
         "toggle_adjustments": "Toggle Adjustments panel",
         "toggle_ai": "Toggle AI panel",
         "toggle_analytics": "Toggle Analytics display",
+        "toggle_black_white": "Toggle Black & White",
         "toggle_bottom_panel": "Toggle Filmstrip",
         "toggle_crop": "Toggle Crop / Straighten",
         "toggle_crop_panel": "Toggle Crop panel",
@@ -1933,6 +2012,7 @@
         "toggle_presets": "Toggle Presets panel",
         "toggle_reject": "Toggle reject flag",
         "toggle_right_panel": "Toggle Right Panel",
+        "toggle_viewer_window": "Toggle second window",
         "undo": "Undo adjustment",
         "unflag": "Remove flag",
         "zoom_100": "Zoom to 100%",
@@ -2173,7 +2253,7 @@
         "birefnet": "For the high-resolution segmentation model that powers the AI foreground detection.",
         "darktable": "For some reference implementations that guided parts of this work.",
         "depth": "For the powerful monocular depth estimation model that enables the AI depth masking capabilities.",
-        "efficientsam3": "For the efficient promptable segmentation model distilled from SAM 3 that powers the AI sky and text masks.",
+        "efficientsam3": "For the efficient promptable segmentation model distilled from SAM 3 that powers the AI text and face masks.",
         "lama": "For the powerful & simple image inpainting model, which enables content-aware fill and object removal.",
         "lensfun": "For its invaluable open-source library and comprehensive database for automatic lens correction.",
         "libgphoto2": "For the comprehensive camera communication library powering RapidRAW's tethering and remote capture subsystem.",

@@ -890,7 +890,7 @@ You have two options to run RapidRAW:
 
 **1. Download the Latest Release (Recommended)**
 
-- For this version, see [**Download**](#download) at the top of this page. The official installers, the Flathub package and the AUR package install the original RapidRAW, without this fork's upgrades.
+- For this version, see [**Download**](#download) at the top of this page. The official installers on the [download page](https://www.getrapidraw.com/download) (Windows, macOS, Linux and Android), the Flathub package and the AUR package install the original RapidRAW, without this fork's upgrades.
 
 **2. Build from Source**
 
@@ -1033,7 +1033,7 @@ sudo dnf install libgphoto2-devel pkgconf-pkg-config
 
 </details>
 
-After installing the system dependencies, download the corresponding `_tethering` build from the original project's [Releases](https://github.com/CyberTimon/RapidRAW/releases) page, or run/build from source using the `tethering` feature flag. This fork has no tethering builds, so build it from source with the flag to get tethering together with this fork's upgrades.
+After installing the system dependencies, download the corresponding tethering build from the original project's [download page](https://www.getrapidraw.com/download#tethering), or run/build from source using the `tethering` feature flag. This fork has no tethering builds, so build it from source with the flag to get tethering together with this fork's upgrades.
 
 ## Command Line Interface (CLI)
 
@@ -1184,7 +1184,7 @@ A huge thank you to the following projects and tools that were very important in
 
 ## Support the Project
 
-As a young developer balancing this project with an apprenticeship, your support means the world. If you find RapidRAW useful or exciting, please consider donating to help me dedicate more time to its development and cover any associated costs.
+As a young developer balancing this project with an apprenticeship, your support means the world. If RapidRAW has a place in your workflow, a donation buys me more time to work on it, new gear to test it with, and days outdoors with my camera, which is where most new ideas for RapidRAW start.
 
 - **Ko-fi:** [Donate on Ko-fi](https://ko-fi.com/cybertimon)
 - **Crypto:**

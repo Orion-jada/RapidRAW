@@ -1,5 +1,9 @@
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
+import i18n from 'i18next';
+import { toast } from 'react-toastify';
 import {
+  Invokes,
   ImageFile,
   Panel,
   UiVisibility,
@@ -105,6 +109,10 @@ const DEFAULT_PANEL_DEFAULT_REGIONS: Record<Panel, PanelRegion> = {
 export const DEFAULT_PANEL_WIDTH = 350;
 export const DEFAULT_PANEL_SECTION_HEIGHT = 450;
 export const DEFAULT_BOTTOM_PANEL_HEIGHT = 144;
+const MIN_REOPENED_PANEL_WIDTH = 250;
+
+export const getReopenedPanelWidth = (width: number) =>
+  width < MIN_REOPENED_PANEL_WIDTH ? DEFAULT_PANEL_WIDTH : width;
 
 export function reconcileWorkspace(
   savedWorkspace: WorkspaceState | undefined,
@@ -208,6 +216,7 @@ export interface UIState {
   activeView: string;
   isFullScreen: boolean;
   isWindowFullScreen: boolean;
+  isViewerOpen: boolean;
   isInstantTransition: boolean;
   isLayoutReady: boolean;
   uiVisibility: UiVisibility;
@@ -271,6 +280,7 @@ export interface UIState {
   searchFocusRequest: number;
   requestSearchFocus: () => void;
   toggleFullScreen: () => void;
+  toggleViewerWindow: () => void;
   resetWorkspaceLayout: (isTetheringSupported?: boolean) => WorkspaceState;
 }
 
@@ -278,6 +288,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeView: 'library',
   isFullScreen: false,
   isWindowFullScreen: false,
+  isViewerOpen: false,
   isInstantTransition: false,
   isLayoutReady: false,
   uiVisibility: { filmstrip: true, leftPanel: true, rightPanel: true, quickFilter: false },
@@ -509,6 +520,17 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (isNotFitToScreen) {
       setTimeout(() => set({ isInstantTransition: false }), 100);
     }
+  },
+
+  toggleViewerWindow: () => {
+    if (get().isViewerOpen) {
+      set({ isViewerOpen: false });
+      invoke(Invokes.CloseViewerWindow).catch(console.error);
+      return;
+    }
+    invoke(Invokes.OpenViewerWindow, { title: i18n.t('editor.viewer.windowTitle') })
+      .then(() => set({ isViewerOpen: true }))
+      .catch((err) => toast.error(i18n.t('editor.viewer.openFailed', { error: String(err) })));
   },
 
   resetWorkspaceLayout: (isTetheringSupported = false) => {

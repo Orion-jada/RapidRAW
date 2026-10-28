@@ -72,6 +72,7 @@ mod semantic_search;
 mod storage;
 mod tagging;
 mod tagging_utils;
+mod viewer_window;
 mod white_balance;
 mod window_customizer;
 
@@ -107,7 +108,8 @@ use tempfile::NamedTempFile;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::cache_utils::{
-    DecodedImageCache, calculate_full_job_hash, calculate_geometry_hash, calculate_transform_hash,
+    DecodedImageCache, calculate_full_job_hash, calculate_geometry_hash, calculate_patch_hash,
+    calculate_transform_hash,
 };
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
@@ -556,15 +558,12 @@ pub fn get_cached_full_warped_image_for_path(
 async fn update_wgpu_transform(
     payload: WgpuTransformPayload,
     state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let context = match state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-    {
-        Some(c) => c.clone(),
-        None => return Ok(()),
+    viewer_window::set_viewer_background(&app_handle, payload.bg_secondary);
+
+    let Some(context) = gpu_processing::current_gpu_context(&state) else {
+        return Ok(());
     };
 
     tokio::task::spawn_blocking(move || {
@@ -584,13 +583,7 @@ async fn update_wgpu_transform(
             display.latest_transform.split_origin = payload.split_origin;
             display.latest_transform.split_normal = payload.split_normal;
             display.latest_transform.split_offset = payload.split_offset;
-
-            context.queue.write_buffer(
-                &display.transform_buffer,
-                0,
-                bytemuck::bytes_of(&display.latest_transform),
-            );
-            display.render(&context.device, &context.queue);
+            display.flush(&context.device, &context.queue);
         }
     })
     .await
@@ -637,11 +630,10 @@ fn process_preview_job(
     request_analytics: bool,
     compute_waveform: bool,
     active_waveform_channel: Option<&str>,
+    target: PreviewTarget,
 ) -> Result<Vec<u8>, String> {
     let fn_start = std::time::Instant::now();
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    hydrate_adjustments(&state, &mut adjustments_json);
-    let adjustments_clone = adjustments_json;
 
     let image_generation = state.load_image_generation.load(Ordering::SeqCst);
     let loaded_image_guard = state.original_image.lock().unwrap();
@@ -651,27 +643,50 @@ fn process_preview_job(
         .clone();
     drop(loaded_image_guard);
 
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let is_raw = loaded_image.is_raw;
+    let render = resolve_render_options(&settings, is_raw);
+    let content = FrameContent {
+        job_hash: calculate_full_job_hash(&loaded_image.path, &adjustments_json),
+        patch_hash: calculate_patch_hash(&adjustments_json),
+        render,
+    };
+    let mirrors_editor = target == PreviewTarget::Editor && layer == DisplayLayer::Edited;
+    if mirrors_editor {
+        viewer_window::record_editor_source(
+            app_handle,
+            &loaded_image.path,
+            &adjustments_json,
+            content,
+            is_interactive,
+        );
+    }
+
+    hydrate_adjustments(&state, &mut adjustments_json);
+    let adjustments_clone = adjustments_json;
+
     crate::ai_denoise::ensure_generated(app_handle, &loaded_image, &adjustments_clone);
 
     let new_transform_hash = calculate_transform_hash(&adjustments_clone);
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let live_quality = settings.live_preview_quality.as_deref().unwrap_or("high");
 
     let default_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
     let preview_dim = target_resolution.unwrap_or(default_preview_dim);
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let use_wgpu_renderer = false;
+    let use_wgpu_renderer = settings.wgpu_renderer_enabled();
 
     let has_roi = roi.is_some();
     let (interactive_divisor, interactive_quality) = match live_quality {
         "performance" => (if has_roi { 1.4_f32 } else { 1.2_f32 }, 75_u8),
         _ => (1.0_f32, 85_u8),
     };
+    let interactive_divisor = match target {
+        PreviewTarget::Editor => interactive_divisor,
+        PreviewTarget::Viewer => 1.0,
+    };
+    let small_preview_dim = (preview_dim as f32 / interactive_divisor) as u32;
 
     let mut cached_preview_lock = state
-        .cached_preview
+        .cached_preview_for(target)
         .lock()
         .unwrap_or_else(|e| e.into_inner());
 
@@ -693,7 +708,7 @@ fn process_preview_job(
     } else {
         *cached_preview_lock = None;
         *state
-            .gpu_image_cache
+            .gpu_image_cache_for(target)
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
 
@@ -704,14 +719,13 @@ fn process_preview_job(
         Arc::clone(&cached_preview_lock.as_ref().unwrap().small_image)
     } else {
         let small = if interactive_divisor > 1.0 {
-            let target_size = (preview_dim as f32 / interactive_divisor) as u32;
             let (w, h) = final_preview_base.dimensions();
             let (small_w, small_h) = if w > h {
                 let ratio = h as f32 / w as f32;
-                (target_size, (target_size as f32 * ratio) as u32)
+                (small_preview_dim, (small_preview_dim as f32 * ratio) as u32)
             } else {
                 let ratio = w as f32 / h as f32;
-                ((target_size as f32 * ratio) as u32, target_size)
+                ((small_preview_dim as f32 * ratio) as u32, small_preview_dim)
             };
             Arc::new(image_processing::downscale_f32_image(
                 &final_preview_base,
@@ -724,7 +738,7 @@ fn process_preview_job(
 
         if is_interactive && base_valid {
             *state
-                .gpu_image_cache
+                .gpu_image_cache_for(target)
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = None;
         }
@@ -743,6 +757,21 @@ fn process_preview_job(
     });
 
     drop(cached_preview_lock);
+
+    if mirrors_editor {
+        viewer_window::sync_viewer_image(
+            app_handle,
+            &loaded_image.path,
+            final_preview_base.dimensions(),
+            scale_for_gpu,
+        );
+    }
+
+    let frame_resolution = if is_interactive {
+        small_preview_dim
+    } else {
+        preview_dim
+    };
 
     let (processing_image, effective_scale, jpeg_quality) = if is_interactive {
         let orig_w = final_preview_base.width() as f32;
@@ -788,8 +817,6 @@ fn process_preview_job(
         &adjustments_clone,
     );
 
-    let is_raw = loaded_image.is_raw;
-    let render = resolve_render_options_from_handle(app_handle, is_raw);
     let final_adjustments =
         get_all_adjustments_from_json(&adjustments_clone, is_raw, loaded_image.as_shot, render);
     let lut_path = adjustments_clone["lutPath"].as_str();
@@ -825,6 +852,19 @@ fn process_preview_job(
         });
     }
 
+    let to_viewer = match target {
+        PreviewTarget::Viewer => true,
+        PreviewTarget::Editor => {
+            mirrors_editor
+                && pixel_roi.is_none()
+                && viewer_window::accepts_editor_frame(app_handle, &content, frame_resolution)
+        }
+    };
+    let caller_id = match target {
+        PreviewTarget::Editor => "apply_adjustments",
+        PreviewTarget::Viewer => "viewer_preview",
+    };
+
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             &context,
@@ -838,13 +878,27 @@ fn process_preview_job(
                 lut,
                 roi: pixel_roi,
             },
-            "apply_adjustments",
-            use_wgpu_renderer.then_some(layer),
+            caller_id,
+            use_wgpu_renderer.then_some(gpu_processing::DisplayOutput {
+                target,
+                layer,
+                to_viewer,
+            }),
             analytics_config,
         );
 
+    let deliver_to_viewer = |jpeg_bytes: Option<&[u8]>| {
+        if to_viewer {
+            viewer_window::record_viewer_frame(app_handle, content, frame_resolution, jpeg_bytes);
+        }
+        target == PreviewTarget::Viewer
+    };
+
     if let Ok(final_processed_image) = final_processed_image_result {
         if use_wgpu_renderer {
+            if deliver_to_viewer(None) {
+                return Ok(Vec::new());
+            }
             if layer == DisplayLayer::Original {
                 return Ok(b"WGPU_RENDER".to_vec());
             }
@@ -889,6 +943,9 @@ fn process_preview_job(
 
         match encode_result {
             Ok(jpeg_bytes) => {
+                if deliver_to_viewer(Some(&jpeg_bytes)) {
+                    return Ok(Vec::new());
+                }
                 if is_interactive {
                     let (roi_w, roi_h) = final_rgba_image.dimensions();
                     let (rx, ry) = if let Some(r) = pixel_roi {
@@ -991,48 +1048,102 @@ fn subscribe_analytics(channel: Channel, state: tauri::State<AppState>) {
     *state.analytics_channel.lock().unwrap() = Some(channel);
 }
 
+fn catch_render_panic(render: impl FnOnce() -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
+    panic::catch_unwind(panic::AssertUnwindSafe(render))
+        .unwrap_or_else(|_| Err("Preview rendering panicked".to_string()))
+}
+
+fn run_editor_job(app_handle: &tauri::AppHandle, job: PreviewJob) {
+    let state = app_handle.state::<AppState>();
+    let responder = job.responder;
+    let result = catch_render_panic(|| {
+        process_preview_job(
+            app_handle,
+            state,
+            job.adjustments,
+            job.layer,
+            job.is_interactive,
+            job.target_resolution,
+            job.roi,
+            job.request_analytics,
+            job.compute_waveform,
+            job.active_waveform_channel.as_deref(),
+            PreviewTarget::Editor,
+        )
+    });
+    match result {
+        Ok(bytes) => {
+            let _ = responder.send(bytes);
+            if job.layer == DisplayLayer::Edited && !job.is_interactive {
+                viewer_window::schedule_viewer_render(app_handle);
+            }
+        }
+        Err(e) => {
+            log::error!("Preview worker error: {}", e);
+        }
+    }
+}
+
+fn run_viewer_job(app_handle: &tauri::AppHandle) {
+    let Some((adjustments, target_resolution)) = viewer_window::pending_viewer_render(app_handle)
+    else {
+        return;
+    };
+    let result = catch_render_panic(|| {
+        process_preview_job(
+            app_handle,
+            app_handle.state::<AppState>(),
+            adjustments,
+            DisplayLayer::Edited,
+            false,
+            Some(target_resolution),
+            None,
+            false,
+            false,
+            None,
+            PreviewTarget::Viewer,
+        )
+    });
+    if let Err(e) = result {
+        log::error!("Viewer preview error: {}", e);
+    }
+}
+
 fn start_preview_worker(app_handle: tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
-    let (tx, rx): (Sender<PreviewJob>, Receiver<PreviewJob>) = mpsc::channel();
+    let (tx, rx): (Sender<PreviewTask>, Receiver<PreviewTask>) = mpsc::channel();
 
     *state.preview_worker_tx.lock().unwrap() = Some(tx);
 
     std::thread::spawn(move || {
-        while let Ok(job) = rx.recv() {
+        let mut viewer_pending = false;
+        loop {
+            let first = if viewer_pending {
+                rx.try_recv().ok()
+            } else {
+                match rx.recv() {
+                    Ok(task) => Some(task),
+                    Err(_) => break,
+                }
+            };
+
             let mut latest: [Option<PreviewJob>; 2] = [None, None];
-            let mut next = Some(job);
-            while let Some(job) = next {
-                let slot = job.layer as usize;
-                latest[slot] = Some(job);
-                next = rx.try_recv().ok();
+            for task in first.into_iter().chain(rx.try_iter()) {
+                match task {
+                    PreviewTask::Editor(job) => {
+                        let slot = job.layer as usize;
+                        latest[slot] = Some(job);
+                    }
+                    PreviewTask::Viewer => viewer_pending = true,
+                }
             }
 
-            for job in latest.into_iter().flatten() {
-                let state = app_handle.state::<AppState>();
-                let responder = job.responder;
-                let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                    process_preview_job(
-                        &app_handle,
-                        state,
-                        job.adjustments,
-                        job.layer,
-                        job.is_interactive,
-                        job.target_resolution,
-                        job.roi,
-                        job.request_analytics,
-                        job.compute_waveform,
-                        job.active_waveform_channel.as_deref(),
-                    )
-                }))
-                .unwrap_or_else(|_| Err("Preview rendering panicked".to_string()));
-                match result {
-                    Ok(bytes) => {
-                        let _ = responder.send(bytes);
-                    }
-                    Err(e) => {
-                        log::error!("Preview worker error: {}", e);
-                    }
+            if latest.iter().any(Option::is_some) {
+                for job in latest.into_iter().flatten() {
+                    run_editor_job(&app_handle, job);
                 }
+            } else if std::mem::take(&mut viewer_pending) {
+                run_viewer_job(&app_handle);
             }
         }
     });
@@ -1072,7 +1183,7 @@ async fn apply_adjustments(
                 responder: tx,
             };
             worker_tx
-                .send(job)
+                .send(PreviewTask::Editor(job))
                 .map_err(|e| format!("Failed to send to preview worker: {}", e))?;
         } else {
             return Err("Preview worker not running".to_string());
@@ -1906,6 +2017,12 @@ fn frontend_log(level: String, message: String) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(target_os = "android"))]
+const MAIN_WINDOW_STATE_FILE: &str = "window_state.json";
+#[cfg(not(target_os = "android"))]
+const MAIN_WINDOW_MIN_SIZE: (f64, f64) = (800.0, 600.0);
+
+#[cfg(not(target_os = "android"))]
 #[derive(Clone, Copy, Debug)]
 struct MonitorBounds {
     x: i32,
@@ -1936,18 +2053,32 @@ fn available_monitor_bounds(window: &tauri::WebviewWindow) -> Vec<MonitorBounds>
         .unwrap_or_default()
 }
 
-#[cfg(target_os = "android")]
-fn available_monitor_bounds(_window: &tauri::WebviewWindow) -> Vec<MonitorBounds> {
-    Vec::new()
+#[cfg(not(target_os = "android"))]
+fn read_window_state(app_handle: &tauri::AppHandle, file_name: &str) -> Option<WindowState> {
+    let path = app_handle.path().app_config_dir().ok()?.join(file_name);
+    let contents = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&contents).ok()
 }
 
+#[cfg(not(target_os = "android"))]
+fn write_window_state(app_handle: &tauri::AppHandle, file_name: &str, state: &WindowState) {
+    if let Ok(config_dir) = app_handle.path().app_config_dir() {
+        let _ = std::fs::create_dir_all(&config_dir);
+        if let Ok(json) = serde_json::to_string(state) {
+            let _ = std::fs::write(config_dir.join(file_name), json);
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 fn saved_window_state_is_usable(
     state: &WindowState,
     monitors: &[MonitorBounds],
     scale_factor: f64,
+    min_logical_size: (f64, f64),
 ) -> bool {
-    let min_w = (800.0 * scale_factor) as u32;
-    let min_h = (600.0 * scale_factor) as u32;
+    let min_w = (min_logical_size.0 * scale_factor) as u32;
+    let min_h = (min_logical_size.1 * scale_factor) as u32;
 
     if state.width < min_w || state.height < min_h {
         return false;
@@ -1997,15 +2128,11 @@ fn frontend_ready(
         let _ = (&app_handle, is_first_run);
 
         #[cfg(any(windows, target_os = "linux"))]
-        if is_first_run && let Ok(config_dir) = app_handle.path().app_config_dir() {
-            let path = config_dir.join("window_state.json");
-
-            if let Ok(contents) = std::fs::read_to_string(&path)
-                && let Ok(saved_state) = serde_json::from_str::<WindowState>(&contents)
-            {
-                should_maximize = saved_state.maximized;
-                should_fullscreen = saved_state.fullscreen;
-            }
+        if is_first_run
+            && let Some(saved_state) = read_window_state(&app_handle, MAIN_WINDOW_STATE_FILE)
+        {
+            should_maximize = saved_state.maximized;
+            should_fullscreen = saved_state.fullscreen;
         }
 
         if let Err(e) = window.show() {
@@ -2049,13 +2176,17 @@ pub fn run() {
         .build_global();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let launch_req = parse_launch_args(&args);
+    let launch_req = resolve_gui_launch_paths(
+        parse_launch_args(&args),
+        &std::env::current_dir().unwrap_or_default(),
+    );
     if let LaunchRequest::InvalidHeadless(error) = &launch_req {
         eprintln!("Headless export failed: {}", error);
         std::process::exit(2);
     }
     let is_headless = matches!(launch_req, LaunchRequest::HeadlessExport(_));
 
+    #[cfg_attr(any(target_os = "android", target_os = "ios"), allow(unused_mut))]
     let mut builder = tauri::Builder::default();
 
     #[cfg(target_os = "linux")]
@@ -2068,7 +2199,7 @@ pub fn run() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         if !is_headless {
-            builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
                 log::info!(
                     "New instance launched with args: {:?}. Focusing main window.",
                     argv
@@ -2083,7 +2214,13 @@ pub fn run() {
                 }
 
                 let forwarded_args = argv.get(1..).unwrap_or(&[]);
-                emit_launch_request(app, parse_launch_args(forwarded_args));
+                emit_launch_request(
+                    app,
+                    resolve_gui_launch_paths(
+                        parse_launch_args(forwarded_args),
+                        std::path::Path::new(&cwd),
+                    ),
+                );
             }));
         }
     }
@@ -2108,16 +2245,20 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
         .plugin(PinchZoomDisablePlugin)
-        .on_window_event(|window, event| if let tauri::WindowEvent::Resized(size) = event {
-            let state = window.state::<AppState>();
-            if let Some(ctx) = state.gpu_context.lock().unwrap().as_ref()
-                && let Ok(mut display_lock) = ctx.display.try_lock()
-                    && let Some(display) = display_lock.as_mut() {
-                        display.config.width = size.width.max(1);
-                        display.config.height = size.height.max(1);
-                        display.surface.configure(&ctx.device, &display.config);
-                        display.render(&ctx.device, &ctx.queue);
-                    }
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Resized(size) => {
+                gpu_processing::resize_display(window, *size);
+                if window.label() == viewer_window::VIEWER_LABEL {
+                    viewer_window::handle_viewer_resized(window, *size);
+                }
+            }
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                viewer_window::handle_close_requested(window, api)
+            }
+            tauri::WindowEvent::Destroyed if window.label() == viewer_window::VIEWER_LABEL => {
+                viewer_window::handle_viewer_destroyed(window.app_handle())
+            }
+            _ => {}
         })
         .setup(move |app| {
             #[cfg(feature = "tethering")]
@@ -2138,6 +2279,7 @@ pub fn run() {
                 });
             }
 
+            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             let state = app.state::<AppState>();
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -2313,6 +2455,7 @@ pub fn run() {
                 .expect("Main window config not found")
                 .clone();
 
+            #[cfg_attr(target_os = "android", allow(unused_mut))]
             let mut window_builder =
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &main_window_cfg)
                     .unwrap();
@@ -2344,29 +2487,24 @@ pub fn run() {
                 let mut initial_normal_rect = (default_w, default_h, 100i32, 100i32);
                 let mut state_loaded = false;
 
-                if let Ok(config_dir) = app.path().app_config_dir() {
-                    let path = config_dir.join("window_state.json");
-                    if let Ok(contents) = std::fs::read_to_string(&path)
-                        && let Ok(state) = serde_json::from_str::<WindowState>(&contents)
-                    {
-                        let monitor_bounds = available_monitor_bounds(&window);
-                        let monitor_size = window.current_monitor().ok().flatten().map(|m| *m.size());
+                if let Some(state) = read_window_state(app.handle(), MAIN_WINDOW_STATE_FILE) {
+                    let monitor_bounds = available_monitor_bounds(&window);
+                    let monitor_size = window.current_monitor().ok().flatten().map(|m| *m.size());
 
-                        let is_maximized_size = monitor_size.map(|m| {
-                            state.width >= m.width.saturating_sub(60) && state.height >= m.height.saturating_sub(60)
-                        }).unwrap_or(false);
+                    let is_maximized_size = monitor_size.map(|m| {
+                        state.width >= m.width.saturating_sub(60) && state.height >= m.height.saturating_sub(60)
+                    }).unwrap_or(false);
 
-                        if saved_window_state_is_usable(&state, &monitor_bounds, scale) && !is_maximized_size {
-                            initial_normal_rect = (state.width, state.height, state.x, state.y);
-                            state_loaded = true;
+                    if saved_window_state_is_usable(&state, &monitor_bounds, scale, MAIN_WINDOW_MIN_SIZE) && !is_maximized_size {
+                        initial_normal_rect = (state.width, state.height, state.x, state.y);
+                        state_loaded = true;
 
-                            let _ = window.set_size(tauri::Size::Physical(
-                                tauri::PhysicalSize::new(state.width, state.height),
-                            ));
-                            let _ = window.set_position(tauri::Position::Physical(
-                                tauri::PhysicalPosition::new(state.x, state.y),
-                            ));
-                        }
+                        let _ = window.set_size(tauri::Size::Physical(
+                            tauri::PhysicalSize::new(state.width, state.height),
+                        ));
+                        let _ = window.set_position(tauri::Position::Physical(
+                            tauri::PhysicalPosition::new(state.x, state.y),
+                        ));
                     }
                 }
 
@@ -2374,8 +2512,8 @@ pub fn run() {
                     let (mut w, mut h) = (1280.0_f64, 720.0_f64);
                     if let Some(m) = window.current_monitor().ok().flatten() {
                         let ms = m.size().to_logical::<f64>(m.scale_factor());
-                        w = w.min(ms.width - 80.0).max(800.0);
-                        h = h.min(ms.height - 120.0).max(600.0);
+                        w = w.min(ms.width - 80.0).max(MAIN_WINDOW_MIN_SIZE.0);
+                        h = h.min(ms.height - 120.0).max(MAIN_WINDOW_MIN_SIZE.1);
                     }
 
                     let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
@@ -2414,14 +2552,8 @@ pub fn run() {
                             lock.take()
                         };
 
-                        if let Some(state) = state_to_save
-                            && let Ok(config_dir) = app_handle_for_saver.path().app_config_dir()
-                        {
-                            let path = config_dir.join("window_state.json");
-                            let _ = std::fs::create_dir_all(&config_dir);
-                            if let Ok(json) = serde_json::to_string(&state) {
-                                let _ = std::fs::write(&path, json);
-                            }
+                        if let Some(state) = state_to_save {
+                            write_window_state(&app_handle_for_saver, MAIN_WINDOW_STATE_FILE, &state);
                         }
                     }
                 });
@@ -2456,8 +2588,8 @@ pub fn run() {
                                 .unwrap_or((0, 0));
 
                             let event_scale = window_for_handler.scale_factor().unwrap_or(1.0);
-                            let min_w = (800.0 * event_scale) as u32;
-                            let min_h = (600.0 * event_scale) as u32;
+                            let min_w = (MAIN_WINDOW_MIN_SIZE.0 * event_scale) as u32;
+                            let min_h = (MAIN_WINDOW_MIN_SIZE.1 * event_scale) as u32;
 
                             let is_maximize_in_progress = window_for_handler
                                 .current_monitor()
@@ -2502,8 +2634,10 @@ pub fn run() {
             gpu_crash_flag_path: Mutex::new(None),
             original_image: Mutex::new(None),
             cached_preview: Mutex::new(None),
+            viewer_cached_preview: Mutex::new(None),
             gpu_context: Mutex::new(None),
             gpu_image_cache: Mutex::new(None),
+            viewer_gpu_image_cache: Mutex::new(None),
             gpu_processor: Mutex::new(None),
             ai_state: Mutex::new(None),
             ai_init_lock: TokioMutex::new(()),
@@ -2545,6 +2679,10 @@ pub fn run() {
             disks_cache: Mutex::new(None),
             disks_cache_refreshing: AtomicBool::new(false),
             camera_session: Mutex::new(camera_tethering::CameraSession::new()),
+            viewer: Mutex::new(ViewerState {
+                background: gpu_processing::DisplayTransform::default().bg_secondary,
+                session: ViewerSession::default(),
+            }),
         })
         .invoke_handler(tauri::generate_handler![
             apply_adjustments,
@@ -2570,6 +2708,11 @@ pub fn run() {
             cancel_thumbnail_generation,
             update_wgpu_transform,
             release_original_preview,
+            viewer_window::open_viewer_window,
+            viewer_window::close_viewer_window,
+            viewer_window::set_viewer_view,
+            viewer_window::get_viewer_info,
+            viewer_window::get_viewer_frame,
             android_integration::resolve_android_content_uri_name,
             cache_utils::clear_session_caches,
             cache_utils::clear_image_caches,
@@ -2692,6 +2835,7 @@ pub fn run() {
             immich::commands::immich_set_api_key,
             immich::commands::immich_test_connection,
             immich::commands::immich_list_albums,
+            immich::commands::immich_create_album,
             immich::commands::immich_get_images,
             immich::commands::immich_sync_status,
             immich::commands::immich_flush,
