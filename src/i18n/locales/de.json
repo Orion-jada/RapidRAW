@@ -150,6 +150,9 @@
       "aiDenoise": "KI-Entrauschen",
       "classicDenoise": "Klassisches Entrauschen",
       "aiDenoiseDetail": "Details",
+      "aiDenoiseModel": "Modell",
+      "aiDenoiseModelDefault": "Standard ({{model}})",
+      "aiDenoiseModelNind": "NIND (KI - Alle Formate)",
       "blueYellow": "Blau/Gelb",
       "centre": "Zentriert",
       "chromaticAberration": "Chromatische Aberration",
@@ -2172,6 +2175,9 @@
           "title": "KI-frei"
         },
         "description": "Die KI von RapidRAW ist auf Flexibilität ausgelegt. Wählen Sie Ihren idealen Workflow.",
+        "denoiseModel": "KI-Entrauschen-Modell",
+        "denoiseModelAuto": "Automatisch (RawNIND für RAW, NIND für andere Dateien)",
+        "denoiseModelDesc": "Das Modell, das KI-Entrauschen für Fotos mit der Einstellung Standard verwendet. Jedes Foto kann im Bereich Details ein anderes Modell verwenden. Ein Foto, das das gewählte Modell nicht nutzen kann, etwa ein JPEG mit einem reinen RAW-Modell, verwendet stattdessen NIND oder RawNIND.",
         "providers": {
           "aiConnector": "AI Connector",
           "aiFree": "KI-frei",

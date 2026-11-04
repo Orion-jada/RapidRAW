@@ -150,6 +150,9 @@
       "aiDenoise": "AI Denoise",
       "classicDenoise": "Classic Denoise",
       "aiDenoiseDetail": "Detail",
+      "aiDenoiseModel": "Model",
+      "aiDenoiseModelDefault": "Default ({{model}})",
+      "aiDenoiseModelNind": "NIND (AI - All formats)",
       "blueYellow": "Blue/Yellow",
       "centre": "Centré",
       "chromaticAberration": "Chromatic Aberration",
@@ -2172,6 +2175,9 @@
           "title": "AI-Free"
         },
         "description": "RapidRAW's AI is built for flexibility. Choose your ideal workflow, from fast local tools to powerful self-hosting.",
+        "denoiseModel": "AI Denoise Model",
+        "denoiseModelAuto": "Auto (RawNIND for RAW, NIND for other files)",
+        "denoiseModelDesc": "The model AI Denoise uses for photos set to Default. Any photo can use a different model in the Details panel. A photo that can't use the chosen model, like a JPEG with a RAW-only model, uses NIND or RawNIND instead.",
         "providers": {
           "aiConnector": "AI Connector",
           "aiFree": "AI-Free",

@@ -150,6 +150,9 @@
       "aiDenoise": "Débruitage IA",
       "classicDenoise": "Débruitage classique",
       "aiDenoiseDetail": "Détail",
+      "aiDenoiseModel": "Modèle",
+      "aiDenoiseModelDefault": "Par défaut ({{model}})",
+      "aiDenoiseModelNind": "NIND (IA - Tous formats)",
       "blueYellow": "Bleu/Jaune",
       "centre": "Centre",
       "chromaticAberration": "Aberration chromatique",
@@ -2214,6 +2217,9 @@
           "title": "Sans IA"
         },
         "description": "L'IA de RapidRAW est conçue pour être flexible. Choisissez votre workflow idéal, des outils locaux rapides aux puissantes options d'auto-hébergement.",
+        "denoiseModel": "Modèle de débruitage IA",
+        "denoiseModelAuto": "Automatique (RawNIND pour les RAW, NIND pour les autres fichiers)",
+        "denoiseModelDesc": "Le modèle utilisé par le débruitage IA pour les photos réglées sur Par défaut. Chaque photo peut utiliser un autre modèle dans le panneau Détails. Une photo qui ne peut pas utiliser le modèle choisi, comme un JPEG avec un modèle réservé aux RAW, utilise NIND ou RawNIND.",
         "providers": {
           "aiConnector": "AI Connector",
           "aiFree": "Sans IA",

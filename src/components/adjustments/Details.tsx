@@ -1,6 +1,8 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import Dropdown from '../ui/Dropdown';
 import Slider, { SliderChangeEvent } from '../ui/Slider';
 import Text from '../ui/Text';
 import { TextVariants } from '../../types/typography';
@@ -11,9 +13,12 @@ import {
   DetailsAdjustment,
   getAdjustmentToolOrder,
   getAiDenoiseEnablePatch,
+  getDenoiseModelName,
+  getDenoiseModelOptions,
   getHiddenAdjustmentTools,
+  resolveDenoiseModel,
 } from '../../utils/adjustments';
-import { AppSettings } from '../ui/AppProperties';
+import { AppSettings, Invokes } from '../ui/AppProperties';
 import AdjustmentSubSection from './AdjustmentSubSection';
 import { canvasToolState, useEditorStore } from '../../store/useEditorStore';
 import { selectAiModelDownloadStatus, useProcessStore } from '../../store/useProcessStore';
@@ -40,6 +45,9 @@ function DetailsPanel({
     state.selectedImage ? state.aiDenoiseProgress[state.selectedImage.path] : undefined,
   );
   const aiModelDownloadStatus = useProcessStore(selectAiModelDownloadStatus);
+  const selectedPath = useEditorStore((state) => state.selectedImage?.path);
+  const isRaw = useEditorStore((state) => !!state.selectedImage?.isRaw);
+  const [raw9Available, setRaw9Available] = useState(false);
 
   const handleAdjustmentChange = (key: string, value: string) => {
     const numericValue = parseInt(value, 10);
@@ -51,11 +59,41 @@ function DetailsPanel({
   };
 
   const isAiFree = appSettings?.aiProvider === 'ai-free';
-  const denoiseMethod = adjustments.aiDenoiseEnabled
-    ? (adjustments.aiDenoiseMethod ?? DenoiseMethod.Ai)
-    : isAiFree
-      ? DenoiseMethod.Bm3d
-      : DenoiseMethod.Ai;
+  const canPickDenoiseModel = !isForMask && !isAiFree && !!adjustments.aiDenoiseEnabled;
+
+  useEffect(() => {
+    if (!canPickDenoiseModel || !isRaw || !selectedPath) {
+      setRaw9Available(false);
+      return;
+    }
+    let cancelled = false;
+    invoke<boolean>(Invokes.IsRaw9Available, { paths: [selectedPath] })
+      .then((available) => {
+        if (!cancelled) setRaw9Available(available);
+      })
+      .catch(() => {
+        if (!cancelled) setRaw9Available(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canPickDenoiseModel, isRaw, selectedPath]);
+
+  const denoiseMethod = adjustments.aiDenoiseMethod ?? DenoiseMethod.Ai;
+  const defaultDenoiseModel = resolveDenoiseModel(
+    DenoiseMethod.Ai,
+    appSettings?.liveDenoiseModel,
+    isRaw,
+    raw9Available,
+  );
+  const denoiseModel = resolveDenoiseModel(denoiseMethod, appSettings?.liveDenoiseModel, isRaw, raw9Available);
+  const denoiseModelOptions = [
+    {
+      label: t('adjustments.details.aiDenoiseModelDefault', { model: getDenoiseModelName(defaultDenoiseModel) }),
+      value: DenoiseMethod.Ai,
+    },
+    ...getDenoiseModelOptions(t, isRaw, raw9Available),
+  ];
   const hiddenTools = getHiddenAdjustmentTools(appSettings?.adjustmentLayout);
   const toolOrder = getAdjustmentToolOrder('details', appSettings?.adjustmentLayout?.toolOrder);
 
@@ -176,9 +214,9 @@ function DetailsPanel({
               <SpatialEffect
                 enabled={!!adjustments.aiDenoiseEnabled}
                 label={
-                  denoiseMethod === DenoiseMethod.Ai
-                    ? t('adjustments.details.aiDenoise')
-                    : t('adjustments.details.classicDenoise')
+                  (isAiFree && !adjustments.aiDenoiseEnabled) || denoiseModel === DenoiseMethod.Bm3d
+                    ? t('adjustments.details.classicDenoise')
+                    : t('adjustments.details.aiDenoise')
                 }
                 onToggle={(enabled: boolean) =>
                   setAdjustments((prev: Partial<Adjustments>) => ({
@@ -187,6 +225,21 @@ function DetailsPanel({
                   }))
                 }
               >
+                {canPickDenoiseModel && (
+                  <div>
+                    <Text variant={TextVariants.label} className="mb-2 block">
+                      {t('adjustments.details.aiDenoiseModel')}
+                    </Text>
+                    <Dropdown<DenoiseMethod>
+                      options={denoiseModelOptions}
+                      value={denoiseMethod === DenoiseMethod.Ai ? DenoiseMethod.Ai : denoiseModel}
+                      onChange={(method) =>
+                        setAdjustments((prev: Partial<Adjustments>) => ({ ...prev, aiDenoiseMethod: method }))
+                      }
+                      disabled={aiDenoiseProgress !== undefined}
+                    />
+                  </div>
+                )}
                 {aiDenoiseProgress !== undefined ? (
                   <div className="flex flex-col items-center justify-center gap-1 p-4 text-text-secondary text-center">
                     <div className="flex items-center gap-2">

@@ -150,6 +150,9 @@
       "aiDenoise": "Odszumianie AI",
       "classicDenoise": "Klasyczne odszumianie",
       "aiDenoiseDetail": "Szczegóły",
+      "aiDenoiseModel": "Model",
+      "aiDenoiseModelDefault": "Domyślny ({{model}})",
+      "aiDenoiseModelNind": "NIND (AI - Wszystkie formaty)",
       "blueYellow": "Niebieski/Żółty",
       "centre": "Środek",
       "chromaticAberration": "Aberracja chromatyczna",
@@ -2254,6 +2257,9 @@
           "title": "Bez AI"
         },
         "description": "AI w RapidRAW została zbudowana z myślą o elastyczności. Wybierz swój idealny przepływ pracy, od szybkich lokalnych narzędzi po potężne rozwiązania serwerowe.",
+        "denoiseModel": "Model odszumiania AI",
+        "denoiseModelAuto": "Automatycznie (RawNIND dla RAW, NIND dla pozostałych plików)",
+        "denoiseModelDesc": "Model, którego odszumianie AI używa dla zdjęć ustawionych na Domyślny. Każde zdjęcie może użyć innego modelu w panelu Detale. Zdjęcie, które nie może użyć wybranego modelu, na przykład JPEG z modelem tylko dla RAW, używa NIND lub RawNIND.",
         "providers": {
           "aiConnector": "Złącze AI",
           "aiFree": "Bez AI",

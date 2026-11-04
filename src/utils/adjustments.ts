@@ -1,4 +1,5 @@
 import { Crop } from 'react-image-crop';
+import type { TFunction } from 'i18next';
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
 import type { AdjustmentLayout, AppSettings } from '../components/ui/AppProperties';
@@ -70,13 +71,58 @@ export enum ColorGrading {
 }
 
 export enum DenoiseMethod {
+  // Follows the model in the settings.
   Ai = 'ai',
+  RawNind = 'rawnind',
+  RawNindBayer = 'rawnind_bayer',
+  Nind = 'nind',
+  Raw9 = 'raw9',
   Bm3d = 'bm3d',
 }
 
+export const AUTO_DENOISE_MODEL = 'auto';
+
+const DENOISE_MODEL_NAMES: Record<string, string> = {
+  [DenoiseMethod.RawNind]: 'RawNIND',
+  [DenoiseMethod.RawNindBayer]: 'RawNIND Bayer',
+  [DenoiseMethod.Nind]: 'NIND',
+  [DenoiseMethod.Raw9]: 'Apple RAW 9',
+  [DenoiseMethod.Bm3d]: 'BM3D',
+};
+
+export const getDenoiseModelName = (model: string) => DENOISE_MODEL_NAMES[model] ?? model;
+
+export const getDenoiseModelOptions = (t: TFunction, isRaw: boolean, raw9Available: boolean) => [
+  ...(isRaw
+    ? [
+        { label: t('modals.denoise.methodAi'), value: DenoiseMethod.RawNind },
+        { label: t('modals.denoise.methodAiBayer'), value: DenoiseMethod.RawNindBayer },
+      ]
+    : []),
+  { label: t('adjustments.details.aiDenoiseModelNind'), value: DenoiseMethod.Nind },
+  ...(raw9Available ? [{ label: t('modals.denoise.methodRaw9'), value: DenoiseMethod.Raw9 }] : []),
+  { label: t('modals.denoise.methodBm3d'), value: DenoiseMethod.Bm3d },
+];
+
+// The model that runs on a photo: its own, or the default from the settings, limited to what the
+// file can take. Matches `DenoiseMethod::for_source` in the backend.
+export const resolveDenoiseModel = (
+  method: DenoiseMethod | undefined,
+  defaultModel: string | undefined,
+  isRaw: boolean,
+  raw9Available: boolean,
+): DenoiseMethod => {
+  const model = !method || method === DenoiseMethod.Ai ? (defaultModel ?? AUTO_DENOISE_MODEL) : method;
+  if (model === DenoiseMethod.Bm3d) return DenoiseMethod.Bm3d;
+  if (!isRaw || model === DenoiseMethod.Nind) return DenoiseMethod.Nind;
+  if (model === DenoiseMethod.RawNindBayer || (model === DenoiseMethod.Raw9 && raw9Available)) return model;
+  return DenoiseMethod.RawNind;
+};
+
+// Only the AI-free provider has a say in the model; otherwise photos keep the one they're on.
 export const getAiDenoiseEnablePatch = (aiProvider?: string): Partial<Adjustments> => ({
   aiDenoiseEnabled: true,
-  aiDenoiseMethod: aiProvider === 'ai-free' ? DenoiseMethod.Bm3d : DenoiseMethod.Ai,
+  ...(aiProvider === 'ai-free' ? { aiDenoiseMethod: DenoiseMethod.Bm3d } : {}),
 });
 
 export enum DetailsAdjustment {

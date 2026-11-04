@@ -150,6 +150,9 @@
       "aiDenoise": "AI-ruisonderdrukking",
       "classicDenoise": "Klassieke ruisonderdrukking",
       "aiDenoiseDetail": "Detail",
+      "aiDenoiseModel": "Model",
+      "aiDenoiseModelDefault": "Standaard ({{model}})",
+      "aiDenoiseModelNind": "NIND (AI - Alle formaten)",
       "blueYellow": "Blauw/Geel",
       "centre": "Centrum",
       "chromaticAberration": "Chromatische aberratie",
@@ -2168,6 +2171,9 @@
           "title": "Zonder AI"
         },
         "description": "De AI van RapidRAW is gebouwd voor flexibiliteit. Kies uw ideale workflow, van snelle lokale tools tot krachtige zelfhosting.",
+        "denoiseModel": "AI-ruisonderdrukkingsmodel",
+        "denoiseModelAuto": "Automatisch (RawNIND voor RAW, NIND voor andere bestanden)",
+        "denoiseModelDesc": "Het model dat AI-ruisonderdrukking gebruikt voor foto's die op Standaard staan. Elke foto kan in het paneel Details een ander model gebruiken. Een foto die het gekozen model niet kan gebruiken, zoals een JPEG met een model alleen voor RAW, gebruikt NIND of RawNIND.",
         "providers": {
           "aiConnector": "AI-verbinding",
           "aiFree": "Zonder AI",

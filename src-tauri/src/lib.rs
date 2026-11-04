@@ -2502,6 +2502,7 @@ pub fn run() {
                 state.decoded_image_cache.lock().unwrap().set_capacity(cache_size);
             }
             crate::storage::apply_cache_limits(&settings);
+            crate::ai_denoise::set_default_method(settings.live_denoise_model.as_deref());
 
             if crash_flag_path.exists() {
                 log::warn!("GPU Driver crash detected on last run! Falling back to OpenGL backend.");

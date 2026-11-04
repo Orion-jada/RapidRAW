@@ -51,7 +51,12 @@ import {
   KEYBIND_SECTIONS,
   normalizeCombo,
 } from '../../utils/keyboardUtils';
-import { DEFAULT_SPEED_EDIT_ADJUSTMENTS, SPEED_EDIT_ADJUSTMENTS } from '../../utils/adjustments';
+import {
+  AUTO_DENOISE_MODEL,
+  DEFAULT_SPEED_EDIT_ADJUSTMENTS,
+  getDenoiseModelOptions,
+  SPEED_EDIT_ADJUSTMENTS,
+} from '../../utils/adjustments';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
@@ -1403,6 +1408,24 @@ export default function SettingsPanel({
                         )}
                       </AnimatePresence>
                     </div>
+
+                    {aiProvider !== 'ai-free' && (
+                      <div className="mt-8">
+                        <SettingItem
+                          label={t('settings.processing.ai.denoiseModel')}
+                          description={t('settings.processing.ai.denoiseModelDesc')}
+                        >
+                          <Dropdown
+                            onChange={(value: string) => onSettingsChange({ ...appSettings, liveDenoiseModel: value })}
+                            options={[
+                              { label: t('settings.processing.ai.denoiseModelAuto'), value: AUTO_DENOISE_MODEL },
+                              ...getDenoiseModelOptions(t, true, osPlatform === 'macos'),
+                            ]}
+                            value={appSettings?.liveDenoiseModel ?? AUTO_DENOISE_MODEL}
+                          />
+                        </SettingItem>
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-6 bg-surface rounded-xl shadow-md">

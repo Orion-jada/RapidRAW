@@ -150,6 +150,9 @@
       "aiDenoise": "Redução de ruído IA",
       "classicDenoise": "Redução de ruído clássica",
       "aiDenoiseDetail": "Detalhe",
+      "aiDenoiseModel": "Modelo",
+      "aiDenoiseModelDefault": "Padrão ({{model}})",
+      "aiDenoiseModelNind": "NIND (IA - Todos os formatos)",
       "blueYellow": "Azul/Amarelo",
       "centre": "Centro",
       "chromaticAberration": "Aberração Cromática",
@@ -2213,6 +2216,9 @@
           "title": "Sem IA"
         },
         "description": "A IA do RapidRAW foi criada para flexibilidade. Escolha seu fluxo de trabalho ideal, desde ferramentas locais rápidas até uma poderosa auto-hospedagem.",
+        "denoiseModel": "Modelo de redução de ruído IA",
+        "denoiseModelAuto": "Automático (RawNIND para RAW, NIND para outros arquivos)",
+        "denoiseModelDesc": "O modelo que a redução de ruído IA usa nas fotos definidas como Padrão. Qualquer foto pode usar outro modelo no painel Detalhes. Uma foto que não pode usar o modelo escolhido, como um JPEG com um modelo só para RAW, usa NIND ou RawNIND.",
         "providers": {
           "aiConnector": "AI Connector",
           "aiFree": "Sem IA",

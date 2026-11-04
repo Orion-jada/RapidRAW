@@ -150,6 +150,9 @@
       "aiDenoise": "AI odšumění",
       "classicDenoise": "Klasické odšumění",
       "aiDenoiseDetail": "Detail",
+      "aiDenoiseModel": "Model",
+      "aiDenoiseModelDefault": "Výchozí ({{model}})",
+      "aiDenoiseModelNind": "NIND (AI – všechny formáty)",
       "blueYellow": "Modrá/Žlutá",
       "centre": "Střed",
       "chromaticAberration": "Chromatická aberace",
@@ -2254,6 +2257,9 @@
           "title": "Bez AI"
         },
         "description": "AI v RapidRAW je vytvořena pro flexibilitu. Vyberte si ideální pracovní postup, od rychlých místních nástrojů po výkonný vlastní hosting.",
+        "denoiseModel": "Model AI odšumění",
+        "denoiseModelAuto": "Automaticky (RawNIND pro RAW, NIND pro ostatní soubory)",
+        "denoiseModelDesc": "Model, který AI odšumění používá u fotek nastavených na Výchozí. Každá fotka může na panelu Detaily použít jiný model. Fotka, která zvolený model použít nemůže, například JPEG s modelem jen pro RAW, použije NIND nebo RawNIND.",
         "providers": {
           "aiConnector": "AI konektor",
           "aiFree": "Bez AI",

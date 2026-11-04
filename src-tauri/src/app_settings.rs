@@ -5,7 +5,7 @@ use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::app_state::AppState;
 
@@ -688,6 +688,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub use_apple_raw9: Option<bool>,
     #[serde(default)]
+    pub live_denoise_model: Option<String>,
+    #[serde(default)]
     pub exif_overlay: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
@@ -851,6 +853,7 @@ impl Default for AppSettings {
             raw_preprocessing_sharpening: Some(0.35),
             apply_preprocessing_to_non_raws: Some(false),
             use_apple_raw9: Some(false),
+            live_denoise_model: None,
             exif_overlay: Some("off".to_string()),
             language: Some("en".to_string()),
             folder_tree_sort: Some(FolderTreeSort::default()),
@@ -1013,6 +1016,18 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
         .unwrap()
         .set_capacity(cache_size);
     crate::storage::apply_cache_limits(&settings);
+
+    if crate::ai_denoise::set_default_method(settings.live_denoise_model.as_deref()) {
+        let open_path = state
+            .original_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|loaded| loaded.path.clone());
+        if let Some(path) = open_path {
+            let _ = app_handle.emit("ai-denoise-ready", path);
+        }
+    }
 
     if previous_gpu_acceleration != Some(settings.ai_gpu_acceleration) {
         crate::ai_processing::reset_ai_sessions(&state.ai_state);

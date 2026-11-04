@@ -21,6 +21,8 @@ use tauri::{Emitter, Manager};
 
 const MODEL_TAG: &str = "nind-v3";
 const RAWNIND_MODEL_TAG: &str = "rawnind-v1";
+const RAWNIND_BAYER_MODEL_TAG: &str = "rawnind-bayer-v1";
+const RAW9_TAG: &str = "raw9-v1";
 const BM3D_TAG: &str = "bm3d-v1";
 const BM3D_INTENSITY: f32 = 0.15;
 const FILE_MAGIC: &[u8; 8] = b"RRDN0002";
@@ -46,6 +48,7 @@ struct DenoiseCache {
 
 static CACHE: LazyLock<Mutex<DenoiseCache>> = LazyLock::new(Default::default);
 static DISK_CACHE_LIMIT_BYTES: AtomicU64 = AtomicU64::new(u64::MAX);
+static DEFAULT_METHOD: Mutex<DenoiseMethod> = Mutex::new(DenoiseMethod::Auto);
 
 fn cache() -> std::sync::MutexGuard<'static, DenoiseCache> {
     CACHE.lock().unwrap_or_else(|e| e.into_inner())
@@ -72,26 +75,85 @@ pub fn is_enabled(adjustments: &serde_json::Value) -> bool {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DenoiseMethod {
+    /// RawNIND for RAWs and NIND for everything else, as the Denoise window picks.
+    Auto,
+    RawNind,
+    RawNindBayer,
     Nind,
+    Raw9,
     Bm3d,
 }
 
 impl DenoiseMethod {
-    const ALL: [Self; 2] = [Self::Nind, Self::Bm3d];
+    const ALL: [Self; 6] = [
+        Self::Auto,
+        Self::RawNind,
+        Self::RawNindBayer,
+        Self::Nind,
+        Self::Raw9,
+        Self::Bm3d,
+    ];
 
-    pub fn from_adjustments(adjustments: &serde_json::Value) -> Self {
-        match adjustments["aiDenoiseMethod"].as_str() {
-            Some("bm3d") => Self::Bm3d,
-            _ => Self::Nind,
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "auto" => Some(Self::Auto),
+            "rawnind" => Some(Self::RawNind),
+            "rawnind_bayer" => Some(Self::RawNindBayer),
+            "nind" => Some(Self::Nind),
+            "raw9" => Some(Self::Raw9),
+            "bm3d" => Some(Self::Bm3d),
+            _ => None,
         }
     }
 
-    fn tag(self) -> &'static str {
+    /// A photo's own model, or the default from the settings if it's on "ai" or has none.
+    pub fn from_adjustments(adjustments: &serde_json::Value) -> Self {
+        adjustments["aiDenoiseMethod"]
+            .as_str()
+            .and_then(Self::parse)
+            .unwrap_or_else(default_method)
+    }
+
+    /// The model that runs on a file. RawNIND and Apple RAW 9 only take RAWs.
+    fn for_source(self, source: &str) -> Self {
+        let is_raw = is_raw_file(source);
         match self {
-            Self::Nind => MODEL_TAG,
+            Self::Auto if is_raw => Self::RawNind,
+            Self::Auto | Self::RawNind | Self::RawNindBayer | Self::Raw9 if !is_raw => Self::Nind,
+            method => method,
+        }
+    }
+
+    fn tag(self, source: &str) -> &'static str {
+        match self.for_source(source) {
+            Self::Auto | Self::Nind => MODEL_TAG,
+            Self::RawNind => RAWNIND_MODEL_TAG,
+            Self::RawNindBayer => RAWNIND_BAYER_MODEL_TAG,
+            Self::Raw9 => RAW9_TAG,
             Self::Bm3d => BM3D_TAG,
         }
     }
+}
+
+fn default_method() -> DenoiseMethod {
+    *DEFAULT_METHOD.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Sets the model for photos without their own and returns whether it changed. Previews rendered
+/// with the old one go stale, like after any change to what's in the cache.
+pub fn set_default_method(name: Option<&str>) -> bool {
+    let method = name
+        .and_then(DenoiseMethod::parse)
+        .unwrap_or(DenoiseMethod::Auto);
+    let previous = std::mem::replace(
+        &mut *DEFAULT_METHOD.lock().unwrap_or_else(|e| e.into_inner()),
+        method,
+    );
+    let changed = previous != method;
+    if changed {
+        cache().epoch += 1;
+    }
+    changed
 }
 
 type Session = Arc<Mutex<ort::session::Session>>;
@@ -121,19 +183,9 @@ fn source_string(path: &str) -> String {
     parse_virtual_path(path).0.to_string_lossy().to_string()
 }
 
-/// The AI method denoises RAWs with RawNIND, as the Denoise window does; everything else with NIND.
-fn uses_rawnind(source: &str) -> bool {
-    is_raw_file(source)
-}
-
 fn entry_key(source: &str, method: DenoiseMethod) -> String {
-    let tag = if method == DenoiseMethod::Nind && uses_rawnind(source) {
-        RAWNIND_MODEL_TAG
-    } else {
-        method.tag()
-    };
     let mut hasher = blake3::Hasher::new();
-    hasher.update(tag.as_bytes());
+    hasher.update(method.tag(source).as_bytes());
     hasher.update(source.as_bytes());
     if let Ok(meta) = fs::metadata(source) {
         hasher.update(&meta.len().to_le_bytes());
@@ -431,6 +483,9 @@ enum Denoiser {
     Nind(Session),
     /// RAWs, with the settings their base image is decoded with.
     RawNind(Session, Box<AppSettings>),
+    /// These two have the app handle to load RawNIND for RAWs they can't take.
+    RawNindBayer(Session, Box<AppSettings>, tauri::AppHandle),
+    Raw9(Box<AppSettings>, tauri::AppHandle),
     Bm3d,
 }
 
@@ -470,6 +525,79 @@ fn run_rawnind(
     Ok(output.into_rgb32f())
 }
 
+/// RawNIND Bayer denoises the sensor data, so the RAW is developed again, without the raw pre-pass,
+/// which is then applied to the result as for RawNIND. Fails for sensors that aren't Bayer (X-Trans,
+/// Foveon, linear DNG).
+fn run_rawnind_bayer(
+    base: &DynamicImage,
+    source: &str,
+    settings: &AppSettings,
+    session: &Mutex<ort::session::Session>,
+    on_progress: &dyn Fn(f32),
+) -> Result<Rgb32FImage, String> {
+    let bytes = fs::read(source).map_err(|e| e.to_string())?;
+    let mut output =
+        crate::denoising::develop_with_bayer_denoise(&bytes, settings, 1.0, session, on_progress)?;
+    if output.dimensions() != base.dimensions() {
+        return Err("its size differs from the editor's image".to_string());
+    }
+    let (color_nr, sharpening) = raw_preprocessing_amounts(settings);
+    if color_nr > 0.0 || sharpening > 0.0 {
+        remove_raw_artifacts_and_enhance(&mut output, color_nr, sharpening);
+    }
+    Ok(output.into_rgb32f())
+}
+
+/// Apple RAW 9 denoises as it develops. When the editor shows Apple's develop too, that's the
+/// result. Otherwise its colors don't match the editor's, so only what the noise reduction took out
+/// is taken out of the editor's image.
+fn run_raw9(
+    base: &DynamicImage,
+    source: &str,
+    settings: &AppSettings,
+) -> Result<Rgb32FImage, String> {
+    let bytes = fs::read(source).map_err(|e| e.to_string())?;
+    let denoised = crate::apple_raw::denoise_raw9(&bytes, source, 1.0)
+        .map_err(|e| e.to_string())?
+        .into_rgb32f();
+    if denoised.dimensions() != base.dimensions() {
+        return Err("its size differs from the editor's image".to_string());
+    }
+    if settings.use_apple_raw9.unwrap_or(false)
+        && !crate::linear_dng::is_developed_file(source, &bytes)
+    {
+        return Ok(denoised);
+    }
+    let undenoised = crate::apple_raw::denoise_raw9(&bytes, source, 0.0)
+        .map_err(|e| e.to_string())?
+        .into_rgb32f();
+    let mut output = base.to_rgb32f();
+    output
+        .par_iter_mut()
+        .zip(denoised.par_iter().zip(undenoised.par_iter()))
+        .for_each(|(out, (with, without))| *out += with - without);
+    Ok(output)
+}
+
+/// For a RAW the chosen model can't take after all.
+fn run_rawnind_instead(
+    base: &DynamicImage,
+    source: &str,
+    settings: &AppSettings,
+    app_handle: &tauri::AppHandle,
+    on_progress: &dyn Fn(f32),
+) -> Result<Rgb32FImage, String> {
+    let state = app_handle.state::<AppState>();
+    let session =
+        tauri::async_runtime::block_on(crate::ai_processing::get_or_init_raw_denoise_model(
+            app_handle,
+            &state.ai_state,
+            &state.ai_init_lock,
+        ))
+        .map_err(|e| e.to_string())?;
+    run_rawnind(base, source, settings, &session, on_progress)
+}
+
 fn run_denoiser(
     base: &DynamicImage,
     denoiser: &Denoiser,
@@ -480,6 +608,28 @@ fn run_denoiser(
     let mut output = match denoiser {
         Denoiser::RawNind(session, settings) => {
             return run_rawnind(base, path, settings, session, on_progress);
+        }
+        Denoiser::RawNindBayer(session, settings, app_handle) => {
+            return run_rawnind_bayer(base, path, settings, session, on_progress).or_else(
+                |error| {
+                    log::warn!(
+                        "RawNIND Bayer can't denoise '{}', using RawNIND instead: {}",
+                        path,
+                        error
+                    );
+                    run_rawnind_instead(base, path, settings, app_handle, on_progress)
+                },
+            );
+        }
+        Denoiser::Raw9(settings, app_handle) => {
+            return run_raw9(base, path, settings).or_else(|error| {
+                log::warn!(
+                    "Apple RAW 9 can't denoise '{}', using RawNIND instead: {}",
+                    path,
+                    error
+                );
+                run_rawnind_instead(base, path, settings, app_handle, on_progress)
+            });
         }
         Denoiser::Nind(session) => {
             crate::ai_processing::run_ai_denoise(&source, session, on_progress)
@@ -538,29 +688,43 @@ async fn load_denoiser(
     method: DenoiseMethod,
     source: &str,
 ) -> Result<Denoiser, String> {
-    if method != DenoiseMethod::Nind {
-        return Ok(Denoiser::Bm3d);
-    }
     let state = app_handle.state::<AppState>();
-    if uses_rawnind(source) {
-        let session = crate::ai_processing::get_or_init_raw_denoise_model(
+    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
+    match method.for_source(source) {
+        DenoiseMethod::Bm3d => Ok(Denoiser::Bm3d),
+        DenoiseMethod::Auto | DenoiseMethod::Nind => {
+            crate::ai_processing::get_or_init_denoise_model(
+                app_handle,
+                &state.ai_state,
+                &state.ai_init_lock,
+            )
+            .await
+            .map(Denoiser::Nind)
+            .map_err(|e| e.to_string())
+        }
+        DenoiseMethod::Raw9 if crate::apple_raw::is_raw9_supported_for_path(source) => {
+            Ok(Denoiser::Raw9(Box::new(settings), app_handle.clone()))
+        }
+        // RawNIND Bayer develops with rawler, which wouldn't match Apple's develop in the editor.
+        DenoiseMethod::RawNindBayer if !settings.use_apple_raw9.unwrap_or(false) => {
+            crate::ai_processing::get_or_init_raw_bayer_denoise_model(
+                app_handle,
+                &state.ai_state,
+                &state.ai_init_lock,
+            )
+            .await
+            .map(|session| Denoiser::RawNindBayer(session, Box::new(settings), app_handle.clone()))
+            .map_err(|e| e.to_string())
+        }
+        _ => crate::ai_processing::get_or_init_raw_denoise_model(
             app_handle,
             &state.ai_state,
             &state.ai_init_lock,
         )
         .await
-        .map_err(|e| e.to_string())?;
-        let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
-        return Ok(Denoiser::RawNind(session, Box::new(settings)));
+        .map(|session| Denoiser::RawNind(session, Box::new(settings)))
+        .map_err(|e| e.to_string()),
     }
-    crate::ai_processing::get_or_init_denoise_model(
-        app_handle,
-        &state.ai_state,
-        &state.ai_init_lock,
-    )
-    .await
-    .map(Denoiser::Nind)
-    .map_err(|e| e.to_string())
 }
 
 async fn generate(
@@ -766,4 +930,50 @@ pub fn clear_ai_denoise_cache() -> Result<(), String> {
     cache.entries.clear();
     cache.epoch += 1;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn photos_on_ai_follow_the_default_and_others_keep_their_model() {
+        let photo = |method: &str| json!({ "aiDenoiseMethod": method });
+
+        set_default_method(Some("nind"));
+        assert!(DenoiseMethod::from_adjustments(&photo("ai")) == DenoiseMethod::Nind);
+        assert!(DenoiseMethod::from_adjustments(&json!({})) == DenoiseMethod::Nind);
+        assert!(DenoiseMethod::from_adjustments(&photo("raw9")) == DenoiseMethod::Raw9);
+        assert!(DenoiseMethod::from_adjustments(&photo("bm3d")) == DenoiseMethod::Bm3d);
+
+        set_default_method(None);
+        assert!(DenoiseMethod::from_adjustments(&photo("ai")) == DenoiseMethod::Auto);
+    }
+
+    #[test]
+    fn each_file_gets_a_model_it_can_take() {
+        for method in [
+            DenoiseMethod::Auto,
+            DenoiseMethod::RawNind,
+            DenoiseMethod::RawNindBayer,
+            DenoiseMethod::Nind,
+            DenoiseMethod::Raw9,
+        ] {
+            assert!(method.for_source("photo.jpg") == DenoiseMethod::Nind);
+        }
+        assert!(DenoiseMethod::Bm3d.for_source("photo.jpg") == DenoiseMethod::Bm3d);
+
+        assert!(DenoiseMethod::Auto.for_source("photo.nef") == DenoiseMethod::RawNind);
+        assert!(DenoiseMethod::Nind.for_source("photo.nef") == DenoiseMethod::Nind);
+        assert!(DenoiseMethod::RawNindBayer.for_source("photo.nef") == DenoiseMethod::RawNindBayer);
+        assert!(DenoiseMethod::Raw9.for_source("photo.nef") == DenoiseMethod::Raw9);
+    }
+
+    #[test]
+    fn existing_denoised_files_keep_their_cache_entries() {
+        assert_eq!(DenoiseMethod::Auto.tag("photo.nef"), RAWNIND_MODEL_TAG);
+        assert_eq!(DenoiseMethod::Auto.tag("photo.jpg"), MODEL_TAG);
+        assert_eq!(DenoiseMethod::Bm3d.tag("photo.nef"), BM3D_TAG);
+    }
 }

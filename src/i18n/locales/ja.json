@@ -150,6 +150,9 @@
       "aiDenoise": "AIノイズ除去",
       "classicDenoise": "クラシックノイズ除去",
       "aiDenoiseDetail": "ディテール",
+      "aiDenoiseModel": "モデル",
+      "aiDenoiseModelDefault": "デフォルト ({{model}})",
+      "aiDenoiseModelNind": "NIND (AI - すべての形式に対応)",
       "blueYellow": "ブルー/イエロー",
       "centre": "中央",
       "chromaticAberration": "色収差",
@@ -2166,6 +2169,9 @@
           "title": "AIなし"
         },
         "description": "RapidRAWのAIは、優れた柔軟性を備えています。高速なローカル処理から本格的なセルフホストまで、最適なワークフローを選択してください。",
+        "denoiseModel": "AIノイズ除去モデル",
+        "denoiseModelAuto": "自動 (RAWはRawNIND、その他のファイルはNIND)",
+        "denoiseModelDesc": "「デフォルト」に設定された写真でAIノイズ除去が使うモデルです。写真ごとにディテールパネルで別のモデルを選べます。RAW専用モデルを選んだJPEGなど、選択したモデルを使えない写真にはNINDまたはRawNINDが使われます。",
         "providers": {
           "aiConnector": "AI Connector",
           "aiFree": "AIなし",

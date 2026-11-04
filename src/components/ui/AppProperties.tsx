@@ -282,6 +282,7 @@ export interface AppSettings {
   enableFolderImageCounts?: boolean;
   displayEditIcon?: boolean;
   linearRawMode?: string;
+  liveDenoiseModel?: string;
   enableXmpSync?: boolean;
   createXmpIfMissing?: boolean;
   isWaveformVisible?: boolean;

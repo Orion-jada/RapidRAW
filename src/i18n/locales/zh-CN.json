@@ -150,6 +150,9 @@
       "aiDenoise": "AI 降噪",
       "classicDenoise": "经典降噪",
       "aiDenoiseDetail": "细节",
+      "aiDenoiseModel": "模型",
+      "aiDenoiseModelDefault": "默认（{{model}}）",
+      "aiDenoiseModelNind": "NIND（AI - 所有格式）",
       "blueYellow": "蓝/黄",
       "centre": "居中",
       "chromaticAberration": "色差",
@@ -2166,6 +2169,9 @@
           "title": "无 AI"
         },
         "description": "RapidRAW 的 AI 专为灵活性而设计。选择您理想的工作流程，从快速的本地工具到强大的自托管。",
+        "denoiseModel": "AI 降噪模型",
+        "denoiseModelAuto": "自动（RAW 用 RawNIND，其他文件用 NIND）",
+        "denoiseModelDesc": "设为“默认”的照片使用的 AI 降噪模型。每张照片都可以在“细节”面板中使用其他模型。无法使用所选模型的照片（例如 JPEG 选了仅限 RAW 的模型）会改用 NIND 或 RawNIND。",
         "providers": {
           "aiConnector": "AI 连接器",
           "aiFree": "无 AI",

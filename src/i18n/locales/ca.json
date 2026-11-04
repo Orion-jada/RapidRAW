@@ -150,6 +150,9 @@
       "aiDenoise": "Reducció de soroll IA",
       "classicDenoise": "Reducció de soroll clàssica",
       "aiDenoiseDetail": "Detall",
+      "aiDenoiseModel": "Model",
+      "aiDenoiseModelDefault": "Predeterminat ({{model}})",
+      "aiDenoiseModelNind": "NIND (IA - Tots els formats)",
       "blueYellow": "Blau/Groc",
       "centre": "Centre",
       "chromaticAberration": "Aberració cromàtica",
@@ -2213,6 +2216,9 @@
           "title": "Sense IA"
         },
         "description": "L'IA de RapidRAW està dissenyada per ser flexible. Trieu el vostre flux de treball ideal, des d'eines locals ràpides fins a un autoallotjament potent.",
+        "denoiseModel": "Model de reducció de soroll IA",
+        "denoiseModelAuto": "Automàtic (RawNIND per a RAW, NIND per a altres fitxers)",
+        "denoiseModelDesc": "El model que la reducció de soroll IA fa servir per a les fotos configurades com a Predeterminat. Qualsevol foto pot fer servir un altre model al tauler Detalls. Una foto que no pot fer servir el model triat, com un JPEG amb un model només per a RAW, fa servir NIND o RawNIND.",
         "providers": {
           "aiConnector": "AI Connector",
           "aiFree": "Sense IA",

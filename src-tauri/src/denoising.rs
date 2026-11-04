@@ -290,20 +290,15 @@ fn run_bm3d(
 
 /// Develops a RAW file with RawNIND Bayer run on its sensor data before demosaicing. Fails for
 /// sensors that aren't Bayer (X-Trans, Foveon, linear DNG), leaving the caller to fall back.
-fn develop_with_bayer_denoise(
+pub fn develop_with_bayer_denoise(
     file_bytes: &[u8],
     settings: &AppSettings,
     intensity: f32,
     session: &Mutex<ort::session::Session>,
-    app_handle: &AppHandle,
+    on_progress: &dyn Fn(f32),
 ) -> Result<DynamicImage, String> {
     let mut denoise = |raw: &mut rawler::RawImage| {
-        crate::ai_processing::run_rawnind_bayer_denoise(raw, intensity, session, |done| {
-            let _ = app_handle.emit(
-                "denoise-progress",
-                format!("Denoising… {:.0}%", done * 100.0),
-            );
-        })
+        crate::ai_processing::run_rawnind_bayer_denoise(raw, intensity, session, on_progress)
     };
     let developed = panic::catch_unwind(AssertUnwindSafe(|| {
         crate::raw_processing::develop_raw_image_with(
@@ -370,7 +365,12 @@ fn denoise_image(
                 &original_settings,
                 intensity,
                 &session,
-                &app_handle,
+                &|done| {
+                    let _ = app_handle.emit(
+                        "denoise-progress",
+                        format!("Denoising… {:.0}%", done * 100.0),
+                    );
+                },
             ) {
                 Ok(image) => Some(image),
                 Err(e) => {
