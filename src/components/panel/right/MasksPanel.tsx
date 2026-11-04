@@ -119,6 +119,10 @@ const SUB_MASK_CONFIG: Record<Mask, any> = {
   },
   [Mask.Brush]: { showBrushTools: true },
   [Mask.Flow]: { showBrushTools: true, showFlowControl: true },
+  [Mask.MatchBrush]: {
+    showBrushTools: true,
+    parameters: [{ key: 'tolerance', min: 1, max: 100, step: 1, defaultValue: 30 }],
+  },
   [Mask.Linear]: { parameters: [] },
   [Mask.Polygon]: {
     parameters: [{ key: 'feather', min: 0, max: 100, step: 1, defaultValue: 10 }],
@@ -348,7 +352,7 @@ export default function MasksPanel() {
   const selectBrushToolForNewMask = useCallback(() => {
     setEditor((state) => ({
       brushSettings: {
-        ...(state.brushSettings ?? { size: 50, feather: 50, tool: ToolType.Brush }),
+        ...(state.brushSettings ?? { size: 100, feather: 50, tool: ToolType.Brush }),
         tool: ToolType.Brush,
       },
     }));
@@ -506,6 +510,13 @@ export default function MasksPanel() {
       Object.assign(subMask.parameters, { points: [], isInitialDraw: true });
     }
 
+    if (type === Mask.MatchBrush && subMask.parameters) {
+      subMask.parameters.rotation = adjustments?.rotation || 0;
+      subMask.parameters.flipHorizontal = adjustments?.flipHorizontal || false;
+      subMask.parameters.flipVertical = adjustments?.flipVertical || false;
+      subMask.parameters.orientationSteps = steps;
+    }
+
     if (type === Mask.AiDepth) {
       if (!subMask.parameters) subMask.parameters = {};
       subMask.parameters.minDepth = 20;
@@ -530,7 +541,7 @@ export default function MasksPanel() {
     onSelectContainer(newContainer.id);
     onSelectMask(subMask.id);
     setExpandedContainers((prev) => new Set(prev).add(newContainer.id));
-    if (type === Mask.Brush || type === Mask.Flow) selectBrushToolForNewMask();
+    if (type === Mask.Brush || type === Mask.Flow || type === Mask.MatchBrush) selectBrushToolForNewMask();
     if (type === Mask.AiForeground) handleGenerateAiForegroundMask(subMask.id);
     else if (type === Mask.AiSky) handleGenerateAiSkyMask(subMask.id);
     else if (type === Mask.AiFace) handleGenerateAiFaceMask(subMask.id, subMask.parameters?.parts ?? []);
@@ -562,7 +573,7 @@ export default function MasksPanel() {
     onSelectContainer(containerId);
     onSelectMask(subMask.id);
     setExpandedContainers((prev) => new Set(prev).add(containerId));
-    if (type === Mask.Brush || type === Mask.Flow) selectBrushToolForNewMask();
+    if (type === Mask.Brush || type === Mask.Flow || type === Mask.MatchBrush) selectBrushToolForNewMask();
     if (type === Mask.AiForeground) handleGenerateAiForegroundMask(subMask.id);
     else if (type === Mask.AiSky) handleGenerateAiSkyMask(subMask.id);
     else if (type === Mask.AiFace) handleGenerateAiFaceMask(subMask.id, subMask.parameters?.parts ?? []);
@@ -1208,7 +1219,7 @@ export default function MasksPanel() {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2, ease: 'easeOut' }}
-                    className="flex-1 min-h-0"
+                    className="grow shrink-0"
                   >
                     <Text variant={TextVariants.heading} className="mb-2">
                       {t('editor.masks.maskAdjustmentsTitle')}

@@ -38,7 +38,7 @@ export const isUniqueFilenameTemplate = (template: string): boolean =>
 
 export type TiffBitDepth = 8 | 16;
 
-export const DEFAULT_EXPORT_DPI = 300;
+export const DEFAULT_EXPORT_DPI = 96;
 export const DEFAULT_AI_UPSCALE_STRENGTH = 60;
 export const MAX_EXPORT_DPI = 65535;
 

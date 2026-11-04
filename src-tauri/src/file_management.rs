@@ -482,6 +482,17 @@ pub fn parse_virtual_path(virtual_path: &str) -> (PathBuf, PathBuf) {
     (source_path, sidecar_path)
 }
 
+fn exif_read_pool() -> Option<&'static rayon::ThreadPool> {
+    static POOL: std::sync::OnceLock<Option<rayon::ThreadPool>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(rayon::current_num_threads())
+            .build()
+            .ok()
+    })
+    .as_ref()
+}
+
 #[tauri::command]
 pub async fn read_exif_for_paths(
     paths: Vec<String>,
@@ -520,6 +531,8 @@ pub async fn read_exif_for_paths(
 
         let exif_data: HashMap<String, HashMap<String, String>> = if is_hdd {
             paths.iter().filter_map(process_path).collect()
+        } else if let Some(pool) = exif_read_pool() {
+            pool.install(|| paths.par_iter().filter_map(process_path).collect())
         } else {
             paths.par_iter().filter_map(process_path).collect()
         };
@@ -1446,7 +1459,11 @@ fn is_sync_unsupported(e: &std::io::Error) -> bool {
     matches!(e.raw_os_error(), Some(code) if code == libc::ENOTSUP || code == libc::EOPNOTSUPP)
 }
 
-fn find_embedded_jpeg(exif: &exif::Exif, ifd: exif::In) -> Option<&[u8]> {
+fn find_embedded_jpeg<'a>(
+    exif: &'a exif::Exif,
+    file_bytes: &'a [u8],
+    ifd: exif::In,
+) -> Option<&'a [u8]> {
     let offset = exif
         .get_field(exif::Tag::JPEGInterchangeFormat, ifd)?
         .value
@@ -1455,7 +1472,12 @@ fn find_embedded_jpeg(exif: &exif::Exif, ifd: exif::In) -> Option<&[u8]> {
         .get_field(exif::Tag::JPEGInterchangeFormatLength, ifd)?
         .value
         .get_uint(0)? as usize;
-    exif.buf().get(offset..offset + len)
+    let tiff = if exif_processing::is_tiff(file_bytes) {
+        file_bytes
+    } else {
+        exif.buf()
+    };
+    tiff.get(offset..offset + len)
 }
 
 fn apply_exif_orientation(img: DynamicImage, orientation: u32) -> DynamicImage {
@@ -1474,23 +1496,28 @@ fn apply_exif_orientation(img: DynamicImage, orientation: u32) -> DynamicImage {
 fn reserve_thumbnail_decode(
     state: &AppState,
     source_path: &Path,
+    file_bytes: &[u8],
     is_raw: bool,
-    preloaded_image: Option<&DynamicImage>,
 ) -> Option<crate::memory_budget::MemoryReservation> {
-    if preloaded_image.is_some() || rayon::current_thread_index().is_some() {
+    if rayon::current_thread_index().is_some() {
         return None;
     }
-    let pixels = crate::memory_budget::image_pixel_count(source_path, is_raw)?;
+    let pixels = if is_raw {
+        crate::memory_budget::raw_pixel_count(file_bytes)?
+    } else {
+        crate::memory_budget::image_pixel_count(source_path, false)?
+    };
     state
         .memory_budget
         .reserve(pixels * if is_raw { 10 } else { 20 }, None)
 }
 
-fn exif_embedded_preview(exif: &exif::Exif) -> Option<DynamicImage> {
-    let (jpeg_bytes, ifd) = find_embedded_jpeg(exif, exif::In::PRIMARY)
+fn exif_embedded_preview(exif: &exif::Exif, file_bytes: &[u8]) -> Option<DynamicImage> {
+    let (jpeg_bytes, ifd) = find_embedded_jpeg(exif, file_bytes, exif::In::PRIMARY)
         .map(|b| (b, exif::In::PRIMARY))
         .or_else(|| {
-            find_embedded_jpeg(exif, exif::In::THUMBNAIL).map(|b| (b, exif::In::THUMBNAIL))
+            find_embedded_jpeg(exif, file_bytes, exif::In::THUMBNAIL)
+                .map(|b| (b, exif::In::THUMBNAIL))
         })?;
 
     let img = image::load_from_memory_with_format(jpeg_bytes, image::ImageFormat::Jpeg).ok()?;
@@ -1509,7 +1536,7 @@ fn try_load_embedded_raw_preview(source_path: &Path, target_res: u32) -> Option<
     let large_enough = |preview: &DynamicImage| preview.width().max(preview.height()) >= min_size;
 
     match exif_processing::read_exif(&mmap) {
-        Some(exif) => exif_embedded_preview(&exif)
+        Some(exif) => exif_embedded_preview(&exif, &mmap)
             .filter(large_enough)
             .or_else(|| image_loader::tiff_embedded_preview(&mmap).filter(large_enough)),
         None => image_loader::safe_embedded_preview_fallback(&mmap, &source_path.to_string_lossy())
@@ -1619,8 +1646,7 @@ fn generate_thumbnail_data_with_metadata(
         } else {
             let mut raw_scale_factor = 1.0f32;
 
-            let _decode_reservation =
-                reserve_thumbnail_decode(&state, &source_path, is_raw, preloaded_image);
+            let _decode_reservation;
             let composite_image: Cow<DynamicImage> = if let Some(patched) = &cached_patched {
                 Cow::Borrowed(patched)
             } else if let Some(img) = preloaded_image {
@@ -1650,6 +1676,9 @@ fn generate_thumbnail_data_with_metadata(
                     }
                 };
 
+                _decode_reservation =
+                    reserve_thumbnail_decode(&state, &source_path, file_slice, is_raw);
+                crate::as_shot::as_shot_from_bytes(&source_path_str, file_slice);
                 let img = image_loader::load_and_composite(
                     file_slice,
                     &source_path_str,
@@ -1834,6 +1863,18 @@ fn generate_thumbnail_data_with_metadata(
                 mask_cache_key: None,
                 lut,
                 roi: None,
+                hsl_probe: false,
+                motion_blur: crate::motion_blur::MotionBlurs::new(
+                    &meta.adjustments,
+                    (preview_w, preview_h),
+                    (
+                        unscaled_crop_offset.0 * total_scale,
+                        unscaled_crop_offset.1 * total_scale,
+                    ),
+                    processing_base_arc
+                        .width()
+                        .max(processing_base_arc.height()) as f32,
+                ),
             },
             "generate_thumbnail_data",
         ) {
@@ -1843,39 +1884,42 @@ fn generate_thumbnail_data_with_metadata(
         }
     }
 
-    let _decode_reservation = reserve_thumbnail_decode(
-        &app_handle.state::<AppState>(),
-        &source_path,
-        is_raw,
-        preloaded_image,
-    );
+    let _decode_reservation;
     let mut final_image: Cow<DynamicImage> = if let Some(patched) = &cached_patched {
         Cow::Borrowed(patched)
     } else if let Some(img) = preloaded_image {
         image_loader::prepare_base_image_cow(img, &source_path_str, adjustments)?
     } else {
-        Cow::Owned(match read_file_mapped(&source_path) {
-            Ok(mmap) => image_loader::load_and_composite(
-                &mmap,
-                &source_path_str,
-                adjustments,
-                true,
-                settings,
-                None,
-            )?,
+        let mmap_guard;
+        let vec_guard;
+        let file_slice: &[u8] = match read_file_mapped(&source_path) {
+            Ok(mmap) => {
+                mmap_guard = mmap;
+                &mmap_guard
+            }
             Err(e) => {
                 log::warn!("Fallback read for {}: {}", source_path_str, e);
-                let bytes = fs::read(&source_path)?;
-                image_loader::load_and_composite(
-                    &bytes,
-                    &source_path_str,
-                    adjustments,
-                    true,
-                    settings,
-                    None,
-                )?
+                vec_guard = fs::read(&source_path)?;
+                &vec_guard
             }
-        })
+        };
+        _decode_reservation = reserve_thumbnail_decode(
+            &app_handle.state::<AppState>(),
+            &source_path,
+            file_slice,
+            is_raw,
+        );
+        if adjustments.is_null() {
+            crate::as_shot::as_shot_from_bytes(&source_path_str, file_slice);
+        }
+        Cow::Owned(image_loader::load_and_composite(
+            file_slice,
+            &source_path_str,
+            adjustments,
+            true,
+            settings,
+            None,
+        )?)
     };
 
     if adjustments.is_null() {

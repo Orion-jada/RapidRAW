@@ -153,6 +153,8 @@ impl ProxyRenderer<'_> {
                 mask_cache_key: None,
                 lut: self.lut.clone(),
                 roi: None,
+                hsl_probe: false,
+                motion_blur: Default::default(),
             },
             "auto_enhance",
         )?
