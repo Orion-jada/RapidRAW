@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
 use tauri::Emitter;
 
-use crate::export_processing::TiffBitDepth;
+use crate::export_processing::{OriginalExportOptions, TiffBitDepth};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +27,7 @@ pub struct HeadlessExportSession {
     pub ai_upscale: Option<f32>,
     /// Apply auto-enhance to each image before exporting it.
     pub auto_enhance: bool,
+    pub export_original: Option<OriginalExportOptions>,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +76,9 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
         let mut adjustments_override = None;
         let mut ai_upscale = None;
         let mut auto_enhance = false;
+        let mut export_original = false;
+        let mut original_crop = true;
+        let mut original_keep_exposure = false;
 
         if let Some(src) = iter.next()
             && !src.starts_with('-')
@@ -132,6 +136,9 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
                         }
                     }
                 }
+                "--export-original" => export_original = true,
+                "--original-no-crop" => original_crop = false,
+                "--original-keep-exposure" => original_keep_exposure = true,
                 "--adjustments" => {
                     if let Some(adj) = iter.next() {
                         adjustments_override = Some(adj.clone());
@@ -151,6 +158,10 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
             adjustments_override,
             ai_upscale,
             auto_enhance,
+            export_original: export_original.then_some(OriginalExportOptions {
+                crop: original_crop,
+                keep_exposure: original_keep_exposure,
+            }),
         });
     }
 

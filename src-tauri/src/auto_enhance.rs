@@ -14,9 +14,10 @@ use crate::app_state::AppState;
 use crate::as_shot::AsShot;
 use crate::gpu_processing::{RenderRequest, process_and_get_dynamic_image};
 use crate::image_processing::{
-    AutoAdjustMode, GpuContext, RenderOptions, downscale_f32_image, get_all_adjustments_from_json,
-    srgb_channel_to_linear,
+    AutoAdjustMode, GpuContext, RenderOptions, apply_coarse_rotation, apply_flip, apply_rotation,
+    crop_rect, downscale_f32_image, get_all_adjustments_from_json, srgb_channel_to_linear,
 };
+use crate::render_source::{Frame, RenderSource, SourceTransform};
 use crate::white_balance::{self, MIRED_PER_RELATIVE_UNIT, TINT_PER_RELATIVE_UNIT};
 
 /// Long edge of the proxy that gets rendered: enough for stable statistics, small enough that
@@ -145,8 +146,12 @@ impl ProxyRenderer<'_> {
         let rendered = process_and_get_dynamic_image(
             self.context,
             self.state,
-            &self.proxy,
-            self.cache_key,
+            &RenderSource::new(
+                &self.proxy,
+                self.cache_key,
+                adjustments,
+                SourceTransform::default(),
+            ),
             RenderRequest {
                 adjustments: all,
                 mask_bitmaps: &no_masks,
@@ -354,13 +359,30 @@ pub fn proxy_cache_key(path: &str) -> u64 {
     hasher.finish()
 }
 
-/// Builds the proxy for an image that isn't open in the editor: the whole frame, downscaled.
-pub fn proxy_from_image(image: &DynamicImage) -> DynamicImage {
-    downscale_f32_image(image, PROXY_LONG_EDGE, PROXY_LONG_EDGE)
+/// Builds the proxy auto-enhance measures: the photo before processing, downscaled, then turned,
+/// flipped, straightened and cropped like `adjustments`, so it judges what's in the frame. Lens and
+/// perspective corrections are left out; they barely change the statistics.
+pub fn proxy_from_image(image: &DynamicImage, adjustments: &Value) -> DynamicImage {
+    let small = downscale_f32_image(image, PROXY_LONG_EDGE * 2, PROXY_LONG_EDGE * 2);
+    if image.width() == 0 {
+        return small;
+    }
+    let scale = small.width() as f64 / image.width() as f64;
+    let frame = Frame::from_adjustments(adjustments).scale_crop(scale);
+    let turned = apply_coarse_rotation(small, frame.orientation);
+    let flipped = apply_flip(turned, frame.flip_horizontal, frame.flip_vertical);
+    let straightened = apply_rotation(flipped, frame.rotation);
+    match frame
+        .crop
+        .as_ref()
+        .and_then(|crop| crop_rect(crop, straightened.dimensions()))
+    {
+        Some((x, y, width, height)) => straightened.crop_imm(x, y, width, height),
+        None => straightened.into_owned(),
+    }
 }
 
-/// Solves the auto-enhance sliders for `proxy` (the photo before processing, already cropped
-/// if possible) on top of `adjustments`, and returns them as adjustment JSON to merge in.
+/// Solves the auto-enhance sliders for `proxy` (from `proxy_from_image`) on top of `adjustments`, and returns them as adjustment JSON to merge in.
 #[allow(clippy::too_many_arguments)]
 pub fn compute_auto_adjustments(
     context: &GpuContext,

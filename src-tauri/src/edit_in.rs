@@ -257,6 +257,7 @@ async fn render_tiff(
         dpi: None,
         ai_upscale: None,
         auto_enhance: false,
+        export_original: None,
     };
     export_images_and_wait(
         vec![path.clone()],
